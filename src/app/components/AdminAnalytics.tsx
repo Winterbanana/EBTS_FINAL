@@ -1,6 +1,8 @@
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Users, Package, TrendingUp, AlertTriangle, Clock, DollarSign, CheckCircle, XCircle, Lightbulb, Target, ThumbsUp, ShieldAlert } from 'lucide-react';
 import { BorrowRequest, Equipment } from '../types';
+import { getInventoryMetrics } from '../inventoryMetrics';
+import { calculateOverduePenalty } from '../penalties';
 
 interface AdminAnalyticsProps {
   requests: BorrowRequest[];
@@ -10,21 +12,22 @@ interface AdminAnalyticsProps {
 export function AdminAnalytics({ requests, equipment }: AdminAnalyticsProps) {
   // Overall Statistics
   const totalRequests = requests.length;
-  const approvedRequests = requests.filter(r => r.status === 'Approved' || r.status === 'Returned').length;
+  const approvedRequests = requests.filter(r => r.status === 'Approved').length;
   const pendingRequests = requests.filter(r => r.status === 'Pending').length;
   const rejectedRequests = requests.filter(r => r.status === 'Rejected').length;
   
   const overdueRequests = requests.filter(r => {
     if (r.status !== 'Approved') return false;
-    const due = new Date(r.dueDate);
+    const due = new Date(`${r.dueDate}T00:00:00`);
     const today = new Date();
+    today.setHours(0, 0, 0, 0);
     return today > due;
   });
 
   const totalPenalties = requests.reduce((sum, r) => sum + (r.penalty || 0), 0);
-  const totalEquipment = equipment.length;
-  const availableEquipment = equipment.filter(e => e.status === 'Available').length;
-  const borrowedEquipment = equipment.filter(e => e.status === 'Borrowed').length;
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
+  const totalEquipment = inventoryMetrics.total;
+  const borrowedEquipment = inventoryMetrics.borrowed;
   
   // Equipment utilization rate
   const utilizationRate = totalEquipment > 0 ? Math.round((borrowedEquipment / totalEquipment) * 100) : 0;
@@ -163,6 +166,8 @@ export function AdminAnalytics({ requests, equipment }: AdminAnalyticsProps) {
                 <Bar dataKey="total" fill="#94a3b8" name="Total Equipment" />
                 <Bar dataKey="borrowed" fill="#3b82f6" name="Currently Borrowed" />
                 <Bar dataKey="available" fill="#10b981" name="Available" />
+                <Bar dataKey="missing" fill="#ef4444" name="Missing" />
+                <Bar dataKey="unavailable" fill="#f97316" name="Unavailable" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
@@ -170,6 +175,9 @@ export function AdminAnalytics({ requests, equipment }: AdminAnalyticsProps) {
               <p className="text-sm">No equipment utilization data available</p>
             </div>
           )}
+          <p className="mt-3 text-sm text-gray-600">
+            {inventoryMetrics.available} available · {inventoryMetrics.borrowed} borrowed · {inventoryMetrics.missing} missing · {inventoryMetrics.unavailable} unavailable
+          </p>
         </div>
 
         {/* Request Status Distribution */}
@@ -527,45 +535,46 @@ export function AdminAnalytics({ requests, equipment }: AdminAnalyticsProps) {
 
 // Helper functions
 function getMonthlyTrendData(requests: BorrowRequest[]) {
-  const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-  const monthlyData: { [key: string]: { requests: number, approved: number } } = {};
-  
-  months.forEach(month => {
-    monthlyData[month] = { requests: 0, approved: 0 };
-  });
+  const months = getRecentMonthBuckets();
+  const monthlyData = new Map(months.map(month => [month.key, { requests: 0, approved: 0 }]));
 
   requests.forEach(req => {
-    const date = new Date(req.requestDate);
-    const monthName = date.toLocaleString('default', { month: 'short' });
-    if (monthlyData[monthName]) {
-      monthlyData[monthName].requests++;
+    const date = parseDate(req.requestDate);
+    const bucket = date ? monthlyData.get(`${date.getFullYear()}-${date.getMonth()}`) : undefined;
+    if (bucket) {
+      bucket.requests++;
       if (req.status === 'Approved' || req.status === 'Returned') {
-        monthlyData[monthName].approved++;
+        bucket.approved++;
       }
     }
   });
 
-  return months.map((month) => ({
-    month,
-    requests: monthlyData[month].requests,
-    approved: monthlyData[month].approved,
+  return months.map(({ key, label }) => ({
+    month: label,
+    requests: monthlyData.get(key)?.requests || 0,
+    approved: monthlyData.get(key)?.approved || 0,
   }));
 }
 
 function getCategoryUtilizationData(equipment: Equipment[], requests: BorrowRequest[]) {
-  const categories = ['Screwdriver Set', 'LAN Cable Set', 'Cable Pliers', 'Wires', 'RJ45', 'LAN Cables', 'Cooking Tool Set', 'Projectors', 'HDMI Cables', 'First Aid Kits'];
+  const categories = Array.from(new Set(equipment.map(item => item.category))).sort();
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
 
   return categories.map((category) => {
     const categoryEquipment = equipment.filter(e => e.category === category);
-    const total = categoryEquipment.length;
-    const borrowed = categoryEquipment.filter(e => e.status === 'Borrowed').length;
-    const available = categoryEquipment.filter(e => e.status === 'Available').length;
+    const total = categoryEquipment.reduce((sum, item) => sum + item.totalStock, 0);
+    const borrowed = categoryEquipment.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.borrowed || 0), 0);
+    const available = categoryEquipment.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.available || 0), 0);
+    const missing = categoryEquipment.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.missing || 0), 0);
+    const unavailable = categoryEquipment.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.unavailable || 0), 0);
 
     return {
       category,
       total,
       borrowed,
       available,
+      missing,
+      unavailable,
     };
   }).filter(cat => cat.total > 0); // Only show categories with equipment
 }
@@ -591,31 +600,42 @@ function getUserActivityData(requests: BorrowRequest[]) {
 }
 
 function getOverduePenaltyData(requests: BorrowRequest[]) {
-  const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-  const monthlyData: { [key: string]: { overdue: number, penalties: number } } = {};
-  
-  months.forEach(month => {
-    monthlyData[month] = { overdue: 0, penalties: 0 };
-  });
+  const months = getRecentMonthBuckets();
+  const monthlyData = new Map(months.map(month => [month.key, { overdue: 0, penalties: 0 }]));
 
   requests.forEach(req => {
-    if (req.returnDate || req.status === 'Returned') {
-      const date = new Date(req.returnDate || req.dueDate);
-      const monthName = date.toLocaleString('default', { month: 'short' });
-      if (monthlyData[monthName]) {
-        if (req.penalty && req.penalty > 0) {
-          monthlyData[monthName].overdue++;
-          monthlyData[monthName].penalties += req.penalty;
-        }
-      }
+    const activeOverdue = req.status === 'Approved' && parseDate(req.dueDate) !== null && new Date().setHours(0, 0, 0, 0) > parseDate(req.dueDate)!.getTime();
+    const amount = req.status === 'Approved' ? Math.max(req.penalty || 0, calculateOverduePenalty(req.dueDate)) : req.penalty || 0;
+    const date = parseDate(req.returnDate || (activeOverdue ? new Date().toISOString().slice(0, 10) : ''));
+    const bucket = date ? monthlyData.get(`${date.getFullYear()}-${date.getMonth()}`) : undefined;
+    if (bucket && amount > 0) {
+      bucket.overdue++;
+      bucket.penalties += amount;
     }
   });
 
-  return months.map((month) => ({
-    month,
-    overdue: monthlyData[month].overdue,
-    penalties: monthlyData[month].penalties,
+  return months.map(({ key, label }) => ({
+    month: label,
+    overdue: monthlyData.get(key)?.overdue || 0,
+    penalties: monthlyData.get(key)?.penalties || 0,
   }));
+}
+
+function getRecentMonthBuckets() {
+  const current = new Date();
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(current.getFullYear(), current.getMonth() - 5 + index, 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      label: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
+    };
+  });
+}
+
+function parseDate(value?: string): Date | null {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function getEquipmentConditionData(equipment: Equipment[]) {

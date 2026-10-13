@@ -13,7 +13,9 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
-    category: 'Arnis' as 'Arnis' | 'Basketball' | 'Laptop',
+    brand: 'WCC',
+    category: 'Culinary',
+    program: 'BS Culinary',
     qrcode: '',
   });
 
@@ -28,7 +30,7 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
       // Update existing equipment
       const updatedEquipment = equipment.map(item =>
         item.id === editingId
-          ? { ...item, name: formData.name, category: formData.category, qrcode: formData.qrcode }
+          ? { ...item, name: formData.name, brand: formData.brand.trim() || 'WCC', category: formData.category, program: formData.program, qrcode: formData.qrcode }
           : item
       );
       onUpdateEquipment(updatedEquipment);
@@ -38,22 +40,30 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
       const newEquipment: Equipment = {
         id: `EQ${Date.now()}`,
         name: formData.name,
+        brand: formData.brand.trim() || 'WCC',
         category: formData.category,
+        program: formData.program,
         qrcode: formData.qrcode,
+        totalStock: 10,
+        availableStock: 10,
+        borrowedStock: 0,
         status: 'Available',
+        qualityCondition: 'Excellent',
       };
       onUpdateEquipment([...equipment, newEquipment]);
       setShowAddForm(false);
     }
 
-    setFormData({ name: '', category: 'Arnis', qrcode: '' });
+    setFormData({ name: '', brand: 'WCC', category: 'Culinary', program: 'BS Culinary', qrcode: '' });
   };
 
   const handleEdit = (item: Equipment) => {
     setEditingId(item.id);
     setFormData({
       name: item.name,
+      brand: item.brand || 'WCC',
       category: item.category,
+      program: item.program || 'BS Culinary',
       qrcode: item.qrcode,
     });
     setShowAddForm(true);
@@ -62,7 +72,7 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
   const handleCancel = () => {
     setShowAddForm(false);
     setEditingId(null);
-    setFormData({ name: '', category: 'Arnis', qrcode: '' });
+    setFormData({ name: '', brand: 'WCC', category: 'Culinary', program: 'BS Culinary', qrcode: '' });
   };
 
   return (
@@ -102,6 +112,11 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
               </div>
 
               <div>
+                <label htmlFor="brand" className="block mb-2 text-sm text-gray-700">Brand</label>
+                <input id="brand" type="text" value={formData.brand} onChange={(e) => setFormData({ ...formData, brand: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg" required />
+              </div>
+
+              <div>
                 <label htmlFor="category" className="block mb-2 text-sm text-gray-700">
                   Category
                 </label>
@@ -111,9 +126,20 @@ export function BarcodeAssignment({ equipment, onUpdateEquipment }: BarcodeAssig
                   onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
                 >
-                  <option value="Arnis">Arnis</option>
-                  <option value="Basketball">Basketball</option>
-                  <option value="Laptop">Laptop</option>
+                    <option value="Culinary">Culinary</option>
+                    <option value="Hospitality">Hospitality</option>
+                    <option value="Aviation Maintenance">Aviation Maintenance</option>
+                    <option value="Science/Health-related">Science/Health-related</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="program" className="block mb-2 text-sm text-gray-700">Program</label>
+                <select id="program" value={formData.program} onChange={(e) => setFormData({ ...formData, program: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg">
+                  <option>BS Culinary</option>
+                  <option>BS Hospitality Management</option>
+                  <option>BS Aviation</option>
+                  <option>BS General Science</option>
                 </select>
               </div>
 

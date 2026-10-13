@@ -11,8 +11,10 @@ interface AddEquipmentModalProps {
 
 export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }: AddEquipmentModalProps) {
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<Equipment['category']>('Screwdriver Set');
-  const [stock, setStock] = useState(1);
+  const [brand, setBrand] = useState('WCC');
+  const [category, setCategory] = useState<Equipment['category']>('Culinary');
+  const [program, setProgram] = useState('BS Culinary');
+  const [stock, setStock] = useState(10);
   const [condition, setCondition] = useState<Equipment['qualityCondition']>('Excellent');
   const [photoUrl, setPhotoUrl] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -60,8 +62,8 @@ export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }
       return;
     }
 
-    if (stock < 1 || stock > 5) {
-      setError('Stock must be between 1 and 5');
+    if (stock < 1 || stock > 10) {
+      setError('Stock must be between 1 and 10');
       return;
     }
 
@@ -90,7 +92,9 @@ export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }
     const newEquipment: Equipment = {
       id: `eq-${Date.now()}-${Math.random().toString(36).substring(7)}`,
       name: name.trim(),
+      brand: brand.trim(),
       category,
+      program,
       qrcode: qrCode,
       photoUrl: photoUrl || undefined,
       totalStock: stock,
@@ -161,6 +165,18 @@ export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }
 
                 {/* Category */}
                 <div>
+                  <label className="block text-sm text-gray-700 mb-2">Brand <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    placeholder="e.g., WCC, Tolsen, Hawch"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+
+                <div>
                   <label className="block text-sm text-gray-700 mb-2">
                     Category <span className="text-red-500">*</span>
                   </label>
@@ -169,16 +185,20 @@ export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }
                     onChange={(e) => setCategory(e.target.value as Equipment['category'])}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    <option value="Screwdriver Set">Screwdriver Set</option>
-                    <option value="LAN Cable Set">LAN Cable Set</option>
-                    <option value="Cable Pliers">Cable Pliers</option>
-                    <option value="Wires">Wires</option>
-                    <option value="RJ45">RJ45</option>
-                    <option value="LAN Cables">LAN Cables</option>
-                    <option value="Cooking Tool Set">Cooking Tool Set</option>
-                    <option value="Projectors">Projectors</option>
-                    <option value="HDMI Cables">HDMI Cables</option>
-                    <option value="First Aid Kits">First Aid Kits</option>
+                    <option value="Culinary">Culinary</option>
+                    <option value="Hospitality">Hospitality</option>
+                    <option value="Aviation Maintenance">Aviation Maintenance</option>
+                    <option value="Science/Health-related">Science/Health-related</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">Program <span className="text-red-500">*</span></label>
+                  <select value={program} onChange={(e) => setProgram(e.target.value)} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg">
+                    <option>BS Culinary</option>
+                    <option>BS Hospitality Management</option>
+                    <option>BS Aviation</option>
+                    <option>BS General Science</option>
                   </select>
                 </div>
               </div>
@@ -188,22 +208,22 @@ export function AddEquipmentModal({ onClose, onAddEquipment, existingEquipment }
                 {/* Stock */}
                 <div>
                   <label className="block text-sm text-gray-700 mb-2">
-                    Stock Quantity (Max: 5) <span className="text-red-500">*</span>
+                    Stock Quantity (Max: 10) <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="number"
                     min="1"
-                    max="5"
+                    max="10"
                     step="1"
                     value={stock}
                     onChange={(e) => {
                       const value = parseInt(e.target.value) || 1;
-                      setStock(Math.min(5, Math.max(1, value)));
+                      setStock(Math.min(10, Math.max(1, value)));
                     }}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   <p className="text-xs text-gray-600 mt-1">
-                    Current: {stock} / 5 (Maximum allowed per item)
+                    Current: {stock} / 10 (Maximum allowed per item)
                   </p>
                 </div>
 

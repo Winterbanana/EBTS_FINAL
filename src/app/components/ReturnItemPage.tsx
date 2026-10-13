@@ -3,6 +3,7 @@ import { RotateCcw, CheckCircle, AlertTriangle, Smartphone, Upload, Camera, Doll
 import { QRCodeSVG } from 'qrcode.react';
 import { BorrowRequest } from '../types';
 import { PaymentModal } from './PaymentModal';
+import { calculateOverduePenalty, getOverdueDays } from '../penalties';
 
 interface ReturnItemPageProps {
   userId: string;
@@ -35,38 +36,8 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
 
   const calculatePenalty = (request: BorrowRequest): number => {
     // Use existing penalty if already calculated
-    if (request.penalty) return request.penalty;
-
-    // Calculate based on hours if available
-    if (request.borrowTime && request.dueTime) {
-      const now = new Date();
-      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
-      const [dueHours, dueMinutes] = request.dueTime.split(':').map(Number);
-      const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
-
-      const dueTimeInMinutes = dueHours * 60 + dueMinutes;
-      const currentTimeInMinutes = currentHours * 60 + currentMinutes;
-
-      if (currentTimeInMinutes > dueTimeInMinutes) {
-        const overdueHours = Math.ceil((currentTimeInMinutes - dueTimeInMinutes) / 60);
-        return overdueHours * 20;
-      }
-    }
-
-    // Fallback to day-based calculation
-    const due = new Date(request.dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return diffDays * 20;
-    }
-    return 0;
+    if (request.penalty !== undefined) return request.penalty;
+    return calculateOverduePenalty(request.dueDate);
   };
 
   const isOverdue = (request: BorrowRequest): boolean => {
@@ -77,14 +48,7 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
   };
 
   const getDaysOverdue = (dueDate: string): number => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
+    return getOverdueDays(dueDate);
   };
 
   const handleReturn = () => {
@@ -125,7 +89,11 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
   };
 
   const handlePayPenalty = (request: BorrowRequest) => {
-    setPaymentRequest(request);
+    setPaymentRequest({
+      ...request,
+      overdueDays: getOverdueDays(request.dueDate),
+      penalty: calculateOverduePenalty(request.dueDate),
+    });
     setShowPaymentModal(true);
   };
 
@@ -192,7 +160,13 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
               </div>
             )}
 
-            {selected && !canReturn && (penalty > 0 && !selected.penaltyPaid) && (
+            {selected && selected.penaltyPaymentStatus === 'Pending' && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                Payment method submitted. Staff must verify receipt before the item can be returned.
+              </div>
+            )}
+
+            {selected && selected.penaltyPaymentStatus !== 'Pending' && !canReturn && (penalty > 0 && !selected.penaltyPaid) && (
               <button
                 onClick={() => handlePayPenalty(selected)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-lg hover:from-red-700 hover:to-orange-700 transition-colors shadow-md"
@@ -308,13 +282,13 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
                         {selected.penaltyPaid ? 'Penalty Paid' : 'Overdue Penalty'}
                       </h4>
                       <div className={`space-y-1 text-sm ${selected.penaltyPaid ? 'text-green-700' : 'text-red-700'}`}>
-                        {selected.overdueHours && (
-                          <p>Hours Overdue: {selected.overdueHours} hour(s)</p>
+                        {selected.overdueDays && (
+                          <p>Days Overdue: {selected.overdueDays} day(s)</p>
                         )}
-                        {!selected.overdueHours && (
+                        {!selected.overdueDays && (
                           <p>Days Overdue: {getDaysOverdue(selected.dueDate)} day(s)</p>
                         )}
-                        <p>Penalty Rate: ₱20.00 per {selected.overdueHours ? 'hour' : 'day'}</p>
+                        <p>Penalty Rate: ₱100.00 per overdue day</p>
                         <p className="text-lg font-medium">Total Penalty: ₱{penalty}.00</p>
                       </div>
                       {selected.penaltyPaid ? (

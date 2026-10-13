@@ -3,12 +3,13 @@ import {
   Database, Search, Download, Users, Package, FileText,
   AlertTriangle, Eye, EyeOff, Shield
 } from 'lucide-react';
-import { Equipment, BorrowRequest, User } from '../types';
+import { Equipment, BorrowRequest, EquipmentAuditLog, User } from '../types';
 
 interface DatabasePageProps {
   equipment: Equipment[];
   requests: BorrowRequest[];
   users: User[];
+  equipmentAuditLogs: EquipmentAuditLog[];
   onUpdateEquipment: (equipment: Equipment[]) => void;
   onUpdateRequests: (requests: BorrowRequest[]) => void;
   onUpdateUsers: (users: User[]) => void;
@@ -32,6 +33,15 @@ interface Section {
   headerColor: string;
 }
 
+type PenaltyViewRecord = BorrowRequest & {
+  recordType: 'Overdue Return' | 'Missing Item';
+  recordAmount: number;
+  recordPaid: boolean;
+  recordMethod?: string;
+  recordPaymentDate?: string;
+  recordReturnDate?: string;
+};
+
 const SECTIONS: Section[] = [
   { id: 'user-data', label: 'Store User Data', icon: Users, color: 'text-blue-600', headerColor: 'bg-blue-700' },
   { id: 'student-credentials', label: 'Student Credentials', icon: Users, color: 'text-green-600', headerColor: 'bg-green-700' },
@@ -49,7 +59,7 @@ function esc(val: unknown): string {
   return `'${str}'`;
 }
 
-export function DatabasePage({ equipment, requests, users, onUpdateEquipment, onUpdateRequests, onUpdateUsers }: DatabasePageProps) {
+export function DatabasePage({ equipment, requests, users, equipmentAuditLogs, onUpdateEquipment, onUpdateRequests, onUpdateUsers }: DatabasePageProps) {
   const [activeSection, setActiveSection] = useState<SectionId>('user-data');
   const [search, setSearch] = useState('');
   const [showPasswords, setShowPasswords] = useState(false);
@@ -59,19 +69,49 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
   const admins = users.filter(u => u.role === 'admin');
   const staff = users.filter(u => u.role === 'staff');
 
-  const penalties = requests.filter(r =>
-    r.penalty && r.penalty > 0
-  );
+  const penalties = requests.flatMap((request): PenaltyViewRecord[] => {
+    const records: PenaltyViewRecord[] = [];
+    if ((request.penalty || 0) > 0) records.push({
+      ...request,
+      recordType: 'Overdue Return',
+      recordAmount: request.penalty || 0,
+      recordPaid: !!request.penaltyPaid,
+      recordMethod: request.penaltyPaymentMethod,
+      recordPaymentDate: request.penaltyPaymentDate,
+      recordReturnDate: request.returnDate,
+    });
+    if (request.reportedMissing && !request.missingItemReturned) records.push({
+      ...request,
+      recordType: 'Missing Item',
+      recordAmount: 200,
+      recordPaid: !!request.missingItemPaid,
+      recordMethod: request.missingItemPaid ? 'Staff verified' : undefined,
+      recordPaymentDate: request.missingItemPaymentDate,
+      recordReturnDate: request.missingItemReturnDate || request.returnDate,
+    });
+    return records;
+  });
 
-  const transactionLogs = requests.flatMap(r => {
+  const requestLogs = requests.flatMap(r => {
     const logs = [];
     if (r.requestDate) logs.push({ reqId: r.id, event: 'Request Submitted', actor: r.studentName, date: r.requestDate, detail: `Equipment: ${r.equipmentName}` });
     if (r.status === 'Approved' && r.approvedDate) logs.push({ reqId: r.id, event: 'Request Approved', actor: r.approvedBy || 'Admin', date: r.approvedDate, detail: `Approved for ${r.studentName}` });
     if (r.status === 'Rejected' && r.approvedDate) logs.push({ reqId: r.id, event: 'Request Rejected', actor: r.approvedBy || 'Admin', date: r.approvedDate, detail: `Rejected for ${r.studentName}` });
-    if ((r.status === 'Returned' || r.status === 'Missing') && r.returnDate) logs.push({ reqId: r.id, event: r.status === 'Missing' ? 'Reported Missing' : 'Item Returned', actor: r.studentName, date: r.returnDate, detail: r.conditionAfter ? `Condition: ${r.conditionAfter}` : '' });
+    if ((r.status === 'Returned' || r.status === 'Missing') && r.returnDate) logs.push({ reqId: r.id, event: r.status === 'Missing' ? 'Reported Missing' : r.missingItemReturned ? 'Missing Item Returned' : 'Item Returned', actor: r.missingItemResolvedBy || r.approvedBy || r.studentName, date: r.missingItemReturnDate || r.returnDate, detail: r.conditionAfter ? `Condition: ${r.conditionAfter}` : '' });
+    if (r.missingItemPaid && r.missingItemPaymentDate) logs.push({ reqId: r.id, event: 'Missing Item Fee Paid', actor: r.missingItemResolvedBy || 'Admin', date: r.missingItemPaymentDate, detail: '₱200 replacement fee' });
     if (r.penaltyPaid && r.penaltyPaymentDate) logs.push({ reqId: r.id, event: 'Penalty Paid', actor: r.studentName, date: r.penaltyPaymentDate, detail: `₱${r.penalty} via ${r.penaltyPaymentMethod}` });
     return logs;
   });
+  const transactionLogs = [
+    ...requestLogs,
+    ...equipmentAuditLogs.map(log => ({
+      reqId: log.equipmentId,
+      event: log.event,
+      actor: log.actor,
+      date: log.date,
+      detail: log.detail,
+    })),
+  ];
 
   const filterStr = search.toLowerCase();
 
@@ -142,8 +182,11 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`CREATE TABLE IF NOT EXISTS \`wcc_equipment\` (`);
     lines.push(`  \`id\` VARCHAR(20) NOT NULL PRIMARY KEY,`);
     lines.push(`  \`name\` VARCHAR(100) NOT NULL,`);
+    lines.push(`  \`brand\` VARCHAR(100) NOT NULL DEFAULT 'WCC',`);
     lines.push(`  \`category\` VARCHAR(100) NOT NULL,`);
+    lines.push(`  \`program\` VARCHAR(120) NOT NULL DEFAULT '',`);
     lines.push(`  \`qrcode\` VARCHAR(100) NOT NULL,`);
+    lines.push(`  \`photo_url\` VARCHAR(255) DEFAULT NULL,`);
     lines.push(`  \`total_stock\` INT DEFAULT 1,`);
     lines.push(`  \`available_stock\` INT DEFAULT 1,`);
     lines.push(`  \`borrowed_stock\` INT DEFAULT 0,`);
@@ -158,8 +201,8 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
     lines.push('');
     for (const e of equipment) {
-      lines.push(`INSERT IGNORE INTO \`wcc_equipment\` (\`id\`,\`name\`,\`category\`,\`qrcode\`,\`total_stock\`,\`available_stock\`,\`borrowed_stock\`,\`status\`,\`borrowed_by\`,\`borrow_date\`,\`due_date\`,\`quality_condition\`,\`last_condition_update\`,\`condition_notes\`,\`last_borrowed_by\`) VALUES (`);
-      lines.push(`  ${esc(e.id)},${esc(e.name)},${esc(e.category)},${esc(e.qrcode)},${e.totalStock},${e.availableStock},${e.borrowedStock},${esc(e.status)},${esc(e.borrowedBy)},${esc(e.borrowDate)},${esc(e.dueDate)},${esc(e.qualityCondition)},${esc(e.lastConditionUpdate)},${esc(e.conditionNotes)},${esc(e.lastBorrowedBy)}`);
+      lines.push(`INSERT IGNORE INTO \`wcc_equipment\` (\`id\`,\`name\`,\`brand\`,\`category\`,\`program\`,\`qrcode\`,\`photo_url\`,\`total_stock\`,\`available_stock\`,\`borrowed_stock\`,\`status\`,\`borrowed_by\`,\`borrow_date\`,\`due_date\`,\`quality_condition\`,\`last_condition_update\`,\`condition_notes\`,\`last_borrowed_by\`) VALUES (`);
+      lines.push(`  ${esc(e.id)},${esc(e.name)},${esc(e.brand || 'WCC')},${esc(e.category)},${esc(e.program || '')},${esc(e.qrcode)},${esc(e.photoUrl)},${e.totalStock},${e.availableStock},${e.borrowedStock},${esc(e.status)},${esc(e.borrowedBy)},${esc(e.borrowDate)},${esc(e.dueDate)},${esc(e.qualityCondition)},${esc(e.lastConditionUpdate)},${esc(e.conditionNotes)},${esc(e.lastBorrowedBy)}`);
       lines.push(`);`);
     }
     lines.push('');
@@ -176,6 +219,8 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`  \`student_contact\` VARCHAR(30) DEFAULT NULL,`);
     lines.push(`  \`equipment_id\` VARCHAR(20) NOT NULL,`);
     lines.push(`  \`equipment_name\` VARCHAR(100) NOT NULL,`);
+    lines.push(`  \`equipment_brand\` VARCHAR(100) DEFAULT NULL,`);
+    lines.push(`  \`equipment_program\` VARCHAR(120) DEFAULT NULL,`);
     lines.push(`  \`request_date\` DATE DEFAULT NULL,`);
     lines.push(`  \`due_date\` DATE DEFAULT NULL,`);
     lines.push(`  \`borrow_time\` VARCHAR(10) DEFAULT NULL,`);
@@ -187,12 +232,14 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`  \`approved_date\` DATE DEFAULT NULL,`);
     lines.push(`  \`condition_before\` VARCHAR(20) DEFAULT NULL,`);
     lines.push(`  \`condition_after\` VARCHAR(20) DEFAULT NULL,`);
-    lines.push(`  \`condition_notes\` TEXT DEFAULT NULL`);
+    lines.push(`  \`condition_notes\` TEXT DEFAULT NULL,`);
+    lines.push(`  \`resolution_status\` VARCHAR(20) DEFAULT NULL,`);
+    lines.push(`  \`metadata_json\` LONGTEXT DEFAULT NULL`);
     lines.push(`) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
     lines.push('');
     for (const r of requests) {
-      lines.push(`INSERT IGNORE INTO \`wcc_transactions\` (\`id\`,\`student_id\`,\`student_name\`,\`student_course\`,\`student_contact\`,\`equipment_id\`,\`equipment_name\`,\`request_date\`,\`due_date\`,\`borrow_time\`,\`due_time\`,\`return_date\`,\`return_time\`,\`status\`,\`approved_by\`,\`approved_date\`,\`condition_before\`,\`condition_after\`,\`condition_notes\`) VALUES (`);
-      lines.push(`  ${esc(r.id)},${esc(r.studentId)},${esc(r.studentName)},${esc(r.studentCourse)},${esc(r.studentContact)},${esc(r.equipmentId)},${esc(r.equipmentName)},${esc(r.requestDate)},${esc(r.dueDate)},${esc(r.borrowTime)},${esc(r.dueTime)},${esc(r.returnDate)},${esc(r.returnTime)},${esc(r.status)},${esc(r.approvedBy)},${esc(r.approvedDate)},${esc(r.conditionBefore)},${esc(r.conditionAfter)},${esc(r.conditionNotes)}`);
+      lines.push(`INSERT IGNORE INTO \`wcc_transactions\` (\`id\`,\`student_id\`,\`student_name\`,\`student_course\`,\`student_contact\`,\`equipment_id\`,\`equipment_name\`,\`request_date\`,\`due_date\`,\`borrow_time\`,\`due_time\`,\`return_date\`,\`return_time\`,\`status\`,\`approved_by\`,\`approved_date\`,\`condition_before\`,\`condition_after\`,\`condition_notes\`,\`resolution_status\`,\`metadata_json\`) VALUES (`);
+      lines.push(`  ${esc(r.id)},${esc(r.studentId)},${esc(r.studentName)},${esc(r.studentCourse)},${esc(r.studentContact)},${esc(r.equipmentId)},${esc(r.equipmentName)},${esc(r.requestDate)},${esc(r.dueDate)},${esc(r.borrowTime)},${esc(r.dueTime)},${esc(r.returnDate)},${esc(r.returnTime)},${esc(r.status)},${esc(r.approvedBy)},${esc(r.approvedDate)},${esc(r.conditionBefore)},${esc(r.conditionAfter)},${esc(r.conditionNotes)},${esc(r.missingItemReturned ? 'Returned' : r.missingItemPaid ? 'Paid' : null)},${esc(JSON.stringify(r))}`);
       lines.push(`);`);
     }
     lines.push('');
@@ -229,6 +276,7 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`  \`penalty_type\` VARCHAR(50) NOT NULL,`);
     lines.push(`  \`amount\` DECIMAL(10,2) NOT NULL DEFAULT 0.00,`);
     lines.push(`  \`overdue_hours\` INT DEFAULT 0,`);
+    lines.push(`  \`overdue_days\` INT DEFAULT 0,`);
     lines.push(`  \`penalty_paid\` TINYINT(1) DEFAULT 0,`);
     lines.push(`  \`payment_method\` VARCHAR(50) DEFAULT NULL,`);
     lines.push(`  \`payment_date\` DATE DEFAULT NULL,`);
@@ -236,9 +284,8 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
     lines.push(`) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`);
     lines.push('');
     for (const r of penalties) {
-      const ptype = r.reportedMissing ? 'Missing Item' : 'Overdue Return';
-      lines.push(`INSERT INTO \`wcc_penalty_records\` (\`transaction_id\`,\`student_id\`,\`student_name\`,\`equipment_name\`,\`penalty_type\`,\`amount\`,\`overdue_hours\`,\`penalty_paid\`,\`payment_method\`,\`payment_date\`,\`return_date\`) VALUES (`);
-      lines.push(`  ${esc(r.id)},${esc(r.studentId)},${esc(r.studentName)},${esc(r.equipmentName)},${esc(ptype)},${r.penalty || 0},${r.overdueHours || 0},${r.penaltyPaid ? 1 : 0},${esc(r.penaltyPaymentMethod)},${esc(r.penaltyPaymentDate)},${esc(r.returnDate)}`);
+      lines.push(`INSERT INTO \`wcc_penalty_records\` (\`transaction_id\`,\`student_id\`,\`student_name\`,\`equipment_name\`,\`penalty_type\`,\`amount\`,\`overdue_hours\`,\`overdue_days\`,\`penalty_paid\`,\`payment_method\`,\`payment_date\`,\`return_date\`) VALUES (`);
+      lines.push(`  ${esc(r.id)},${esc(r.studentId)},${esc(r.studentName)},${esc(r.equipmentName)},${esc(r.recordType)},${r.recordAmount},${r.recordType === 'Overdue Return' ? r.overdueHours || 0 : 0},${r.recordType === 'Overdue Return' ? r.overdueDays || 0 : 0},${r.recordPaid ? 1 : 0},${esc(r.recordMethod)},${esc(r.recordPaymentDate)},${esc(r.recordReturnDate)}`);
       lines.push(`);`);
     }
     lines.push('');
@@ -357,7 +404,7 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
                 else if (activeSection === 'equipment-data') exportCSV([['ID','Name','Category','Status','Total','Available','Borrowed','Condition'],...filteredEquipment.map(e=>[e.id,e.name,e.category,e.status,String(e.totalStock),String(e.availableStock),String(e.borrowedStock),e.qualityCondition])],'equipment.csv');
                 else if (activeSection === 'transactions') exportCSV([['ID','Student','Equipment','Date','Due','Status','Approved By'],...filteredRequests.map(r=>[r.id,r.studentName,r.equipmentName,r.requestDate,r.dueDate,r.status,r.approvedBy||''])],'transactions.csv');
                 else if (activeSection === 'transaction-logs') exportCSV([['Transaction ID','Event','Actor','Date','Detail'],...filteredLogs.map(l=>[l.reqId,l.event,l.actor,l.date,l.detail])],'transaction-logs.csv');
-                else if (activeSection === 'penalty-records') exportCSV([['Transaction ID','Student','Equipment','Amount','Overdue Hrs','Paid','Payment Method','Payment Date'],...filteredPenalties.map(r=>[r.id,r.studentName,r.equipmentName,String(r.penalty||0),String(r.overdueHours||0),r.penaltyPaid?'Yes':'No',r.penaltyPaymentMethod||'',r.penaltyPaymentDate||''])],'penalties.csv');
+                else if (activeSection === 'penalty-records') exportCSV([['Transaction ID','Student','Equipment','Type','Amount','Overdue Days','Resolution','Method','Resolution Date'],...filteredPenalties.map(r=>[r.id,r.studentName,r.equipmentName,r.recordType,String(r.recordAmount),String(r.overdueDays||0),r.recordPaid?'Paid':'Unpaid',r.recordMethod||'',r.recordPaymentDate||''])],'penalties.csv');
               }}
               className="flex items-center gap-1 px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-lg transition-colors text-xs"
             >
@@ -558,7 +605,7 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
                     <td className="py-3 px-4 text-gray-600">{r.requestDate}</td>
                     <td className="py-3 px-4 text-gray-600">{r.dueDate}</td>
                     <td className="py-3 px-4 text-gray-600">{r.returnDate || '—'}</td>
-                    <td className="py-3 px-4">{statusBadge(r.status)}</td>
+                    <td className="py-3 px-4">{statusBadge(r.missingItemReturned ? 'Returned' : r.missingItemPaid ? 'Paid' : r.status)}</td>
                     <td className="py-3 px-4 text-gray-600">{r.approvedBy || '—'}</td>
                   </tr>
                 ))}
@@ -598,33 +645,33 @@ export function DatabasePage({ equipment, requests, users, onUpdateEquipment, on
             <table className="w-full text-sm">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
-                  {['Transaction ID','Student','Equipment','Type','Amount','Overdue Hrs','Paid','Method','Payment Date','Return Date'].map(h => (
+                  {['Transaction ID','Student','Equipment','Type','Amount','Overdue Days','Resolution','Method','Resolution Date','Return Date'].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs text-gray-600 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filteredPenalties.map(r => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50">
+                  <tr key={`${r.id}-${r.recordType}`} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 font-mono text-xs text-gray-700">{r.id}</td>
                     <td className="py-3 px-4 text-gray-900">{r.studentName}</td>
                     <td className="py-3 px-4 text-gray-700">{r.equipmentName}</td>
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 text-xs rounded-full ${r.reportedMissing ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
-                        {r.reportedMissing ? 'Missing Item' : 'Overdue Return'}
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${r.recordType === 'Missing Item' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {r.recordType}
                       </span>
                     </td>
-                    <td className="py-3 px-4 text-red-700">₱{r.penalty?.toFixed(2)}</td>
-                    <td className="py-3 px-4 text-gray-700">{r.overdueHours || '—'}</td>
+                    <td className="py-3 px-4 text-red-700">₱{r.recordAmount.toFixed(2)}</td>
+                    <td className="py-3 px-4 text-gray-700">{r.recordType === 'Overdue Return' ? r.overdueDays || '—' : '—'}</td>
                     <td className="py-3 px-4">
-                      {r.penaltyPaid
+                      {r.recordPaid
                         ? <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">Paid</span>
                         : <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">Unpaid</span>
                       }
                     </td>
-                    <td className="py-3 px-4 text-gray-600">{r.penaltyPaymentMethod || '—'}</td>
-                    <td className="py-3 px-4 text-gray-600">{r.penaltyPaymentDate || '—'}</td>
-                    <td className="py-3 px-4 text-gray-600">{r.returnDate || '—'}</td>
+                    <td className="py-3 px-4 text-gray-600">{r.recordMethod || '—'}</td>
+                    <td className="py-3 px-4 text-gray-600">{r.recordPaymentDate || '—'}</td>
+                    <td className="py-3 px-4 text-gray-600">{r.recordReturnDate || '—'}</td>
                   </tr>
                 ))}
                 {filteredPenalties.length === 0 && <tr><td colSpan={10} className="py-10 text-center text-gray-400">No penalty records</td></tr>}

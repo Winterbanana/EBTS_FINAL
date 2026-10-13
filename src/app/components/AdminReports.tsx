@@ -3,6 +3,8 @@ import { Download, TrendingUp, TrendingDown, Award, AlertTriangle, FileText } fr
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BorrowRequest, Equipment } from '../types';
+import { calculateOverduePenalty } from '../penalties';
+import { getInventoryMetrics } from '../inventoryMetrics';
 
 interface AdminReportsProps {
   requests: BorrowRequest[];
@@ -13,18 +15,7 @@ export function AdminReports({ requests, equipment }: AdminReportsProps) {
   const [reportType, setReportType] = useState<'penalties' | 'good' | 'all'>('all');
 
   const calculatePenalty = (dueDate: string): number => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return diffDays * 20;
-    }
-    return 0;
+    return calculateOverduePenalty(dueDate);
   };
 
   const isOverdue = (dueDate: string): boolean => {
@@ -47,11 +38,12 @@ export function AdminReports({ requests, equipment }: AdminReportsProps) {
       requests: BorrowRequest[];
     }>();
 
-    requests
-      .filter(r => r.status === 'Approved')
-      .forEach(req => {
-        const penalty = calculatePenalty(req.dueDate);
-        if (penalty > 0 || isOverdue(req.dueDate)) {
+    requests.forEach(req => {
+        const currentlyOverdue = req.status === 'Approved' && isOverdue(req.dueDate);
+        const penalty = req.status === 'Approved'
+          ? Math.max(req.penalty || 0, calculatePenalty(req.dueDate))
+          : req.penalty || 0;
+        if (penalty > 0 || currentlyOverdue) {
           if (!studentMap.has(req.studentId)) {
             studentMap.set(req.studentId, {
               studentId: req.studentId,
@@ -118,7 +110,9 @@ export function AdminReports({ requests, equipment }: AdminReportsProps) {
 
   const penaltyRecords = getPenaltyRecords();
   const goodRecords = getGoodRecords();
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
   const totalPenalties = penaltyRecords.reduce((sum, r) => sum + r.totalPenalty, 0);
+  const missingItemRecords = requests.filter(r => r.reportedMissing || r.status === 'Missing' || r.missingItemReturned || r.missingItemPaid);
 
   // Generate Penalty Report PDF
   const generatePenaltyReport = () => {
@@ -456,6 +450,81 @@ export function AdminReports({ requests, equipment }: AdminReportsProps) {
           </div>
         </div>
       )}
+
+      {(reportType === 'all' || reportType === 'penalties') && missingItemRecords.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <h3 className="text-lg text-gray-800 mb-4">Missing Item Resolutions</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-800 text-white">
+                <tr>
+                  <th className="text-left py-3 px-4 text-sm">Student ID</th>
+                  <th className="text-left py-3 px-4 text-sm">Student</th>
+                  <th className="text-left py-3 px-4 text-sm">Equipment</th>
+                  <th className="text-left py-3 px-4 text-sm">Resolution</th>
+                  <th className="text-left py-3 px-4 text-sm">Resolved Date</th>
+                  <th className="text-left py-3 px-4 text-sm">Replacement Fee</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missingItemRecords.map(request => {
+                  const resolution = request.missingItemReturned ? 'Returned' : request.missingItemPaid ? 'Paid' : 'Unresolved';
+                  const resolvedDate = request.missingItemReturnDate || request.missingItemPaymentDate;
+                  return (
+                    <tr key={request.id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 text-sm">{request.studentId}</td>
+                      <td className="py-3 px-4">{request.studentName}</td>
+                      <td className="py-3 px-4">{request.equipmentName}</td>
+                      <td className="py-3 px-4">
+                        <span className={`rounded-full px-2 py-1 text-xs ${resolution === 'Returned' ? 'bg-green-100 text-green-700' : resolution === 'Paid' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                          {resolution}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm">{resolvedDate || '—'}</td>
+                      <td className="py-3 px-4">{request.missingItemPaid ? '₱200 Paid' : request.missingItemReturned ? 'Waived - item returned' : '₱200 Due'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+        <h3 className="text-lg text-gray-800 mb-4">Current Equipment Status</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-800 text-white">
+              <tr>
+                <th className="text-left py-3 px-4 text-sm">Equipment ID</th>
+                <th className="text-left py-3 px-4 text-sm">Equipment</th>
+                <th className="text-left py-3 px-4 text-sm">Status</th>
+                <th className="text-right py-3 px-4 text-sm">Available</th>
+                <th className="text-right py-3 px-4 text-sm">Borrowed</th>
+                <th className="text-right py-3 px-4 text-sm">Missing</th>
+                <th className="text-right py-3 px-4 text-sm">Unavailable</th>
+              </tr>
+            </thead>
+            <tbody>
+              {equipment.map(item => {
+                const metric = inventoryMetrics.byEquipmentId.get(item.id);
+                return (
+                  <tr key={item.id} className="border-b hover:bg-gray-50">
+                    <td className="py-3 px-4 text-sm">{item.id}</td>
+                    <td className="py-3 px-4">{item.name}</td>
+                    <td className="py-3 px-4">{item.status}</td>
+                    <td className="py-3 px-4 text-right">{metric?.available || 0}</td>
+                    <td className="py-3 px-4 text-right">{metric?.borrowed || 0}</td>
+                    <td className="py-3 px-4 text-right">{metric?.missing || 0}</td>
+                    <td className="py-3 px-4 text-right">{metric?.unavailable || 0}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {reportType === 'penalties' && penaltyRecords.length === 0 && (
         <div className="bg-white rounded-lg shadow-sm p-12 text-center border border-gray-200">

@@ -7,6 +7,7 @@ import { AdminReports } from './AdminReports';
 import { AdminAnalytics } from './AdminAnalytics';
 import { ProfileSettingsModal } from './ProfileSettingsModal';
 import { Equipment, BorrowRequest, User } from '../types';
+import { getInventoryMetrics } from '../inventoryMetrics';
 import wccLogo from '../../imports/image.png';
 
 interface StaffDashboardProps {
@@ -18,6 +19,7 @@ interface StaffDashboardProps {
   onLogout: () => void;
   onUpdateUser: (updated: User) => void;
   staffName: string;
+  onConfirmPenaltyPayment: (requestId: string) => void;
 }
 
 export function StaffDashboard({
@@ -28,7 +30,8 @@ export function StaffDashboard({
   onUpdateRequests,
   onLogout,
   onUpdateUser,
-  staffName
+  staffName,
+  onConfirmPenaltyPayment
 }: StaffDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'stocks' | 'requests' | 'reports' | 'analytics'>('overview');
   const [showSettings, setShowSettings] = useState(false);
@@ -47,10 +50,11 @@ export function StaffDashboard({
     reader.readAsDataURL(file);
   };
 
-  const totalEquipment = equipment.length;
-  const availableEquipment = equipment.filter(e => e.status === 'Available').length;
-  const borrowedEquipment = equipment.filter(e => e.status === 'Borrowed').length;
-  const missingEquipment = equipment.filter(e => e.status === 'Missing').length;
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
+  const totalEquipment = inventoryMetrics.total;
+  const availableEquipment = inventoryMetrics.available;
+  const borrowedEquipment = inventoryMetrics.borrowed;
+  const missingEquipment = inventoryMetrics.missing;
   const pendingRequests = requests.filter(r => r.status === 'Pending').length;
   const approvedRequests = requests.filter(r => r.status === 'Approved').length;
 
@@ -146,10 +150,10 @@ export function StaffDashboard({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[
-                { label: 'Total Equipment', value: totalEquipment, color: 'text-gray-900', bg: 'bg-blue-100', icon: Package, iconColor: 'text-blue-600' },
-                { label: 'Available', value: availableEquipment, color: 'text-green-600', bg: 'bg-green-100', icon: Package, iconColor: 'text-green-600' },
-                { label: 'Borrowed', value: borrowedEquipment, color: 'text-orange-600', bg: 'bg-orange-100', icon: Package, iconColor: 'text-orange-600' },
-                { label: 'Missing Items', value: missingEquipment, color: 'text-red-600', bg: 'bg-red-100', icon: Package, iconColor: 'text-red-600' },
+                { label: 'Total Stock Units', value: totalEquipment, color: 'text-gray-900', bg: 'bg-blue-100', icon: Package, iconColor: 'text-blue-600' },
+                { label: 'Available Units', value: availableEquipment, color: 'text-green-600', bg: 'bg-green-100', icon: Package, iconColor: 'text-green-600' },
+                { label: 'Borrowed Units', value: borrowedEquipment, color: 'text-orange-600', bg: 'bg-orange-100', icon: Package, iconColor: 'text-orange-600' },
+                { label: 'Missing Units', value: missingEquipment, color: 'text-red-600', bg: 'bg-red-100', icon: Package, iconColor: 'text-red-600' },
                 { label: 'Pending Requests', value: pendingRequests, color: 'text-yellow-600', bg: 'bg-yellow-100', icon: Wrench, iconColor: 'text-yellow-600' },
                 { label: 'Approved Requests', value: approvedRequests, color: 'text-blue-600', bg: 'bg-blue-100', icon: Wrench, iconColor: 'text-blue-600' },
               ].map(({ label, value, color, bg, icon: Icon, iconColor }) => (
@@ -191,7 +195,7 @@ export function StaffDashboard({
         )}
 
         {activeTab === 'stocks' && <StockChecker equipment={equipment} onUpdateEquipment={onUpdateEquipment} />}
-        {activeTab === 'requests' && <RequestManagement equipment={equipment} requests={requests} onUpdateEquipment={onUpdateEquipment} onUpdateRequests={onUpdateRequests} />}
+        {activeTab === 'requests' && <RequestManagement equipment={equipment} requests={requests} onUpdateEquipment={onUpdateEquipment} onUpdateRequests={onUpdateRequests} onConfirmPenaltyPayment={onConfirmPenaltyPayment} />}
         {activeTab === 'reports' && <AdminReports equipment={equipment} requests={requests} />}
         {activeTab === 'analytics' && <AdminAnalytics equipment={equipment} requests={requests} />}
       </main>

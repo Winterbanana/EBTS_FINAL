@@ -3,6 +3,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Send, Camera, CheckCircle, X, AlertTriangle } from 'lucide-react';
 import { Equipment, BorrowRequest, User } from '../types';
 import { QRScanner } from './QRScanner';
+import { MAX_ACTIVE_BORROW_LIMIT, getBorrowingLimitMessage, getStudentActiveBorrowCount } from '../borrowing';
 
 interface RequestPageProps {
   equipment: Equipment[];
@@ -17,7 +18,7 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
   const [showScanner, setShowScanner] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  const availableEquipment = equipment.filter(e => e.status === 'Available');
+  const availableEquipment = equipment.filter(e => e.status === 'Available' && e.availableStock > 0);
 
   // Check if student has unreturned/unpaid missing items
   const studentMissingRequests = requests.filter(
@@ -26,6 +27,8 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
          !r.missingItemReturned && 
          !r.missingItemPaid
   );
+  const activeBorrowCount = getStudentActiveBorrowCount(user.id, requests);
+  const borrowingLimitReached = activeBorrowCount >= MAX_ACTIVE_BORROW_LIMIT;
   
   const hasUnresolvedMissingItems = studentMissingRequests.length > 0;
   const totalDebt = studentMissingRequests.length * 200; // ₱200 per missing item
@@ -47,6 +50,16 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (hasUnresolvedMissingItems) {
+      alert('You cannot borrow equipment while you still have unresolved missing-item obligations.');
+      return;
+    }
+
+    if (borrowingLimitReached) {
+      alert(getBorrowingLimitMessage());
+      return;
+    }
     
     const equipmentItem = availableEquipment.find(e => e.id === selectedEquipment);
     if (!equipmentItem) return;
@@ -62,6 +75,9 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
       studentContact: user.contact || '',
       equipmentId: equipmentItem.id,
       equipmentName: equipmentItem.name,
+      equipmentCategory: equipmentItem.category,
+      equipmentBrand: equipmentItem.brand,
+      equipmentProgram: equipmentItem.program,
       equipmentQRCode: equipmentItem.qrcode,
       requestDate: today,
       dueDate: today, // Same day return (8 hours)
@@ -131,6 +147,21 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
         </div>
       )}
 
+      <div className={`border rounded-lg p-4 ${borrowingLimitReached ? 'bg-red-50 border-red-200' : 'bg-blue-50 border-blue-200'}`}>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className={`text-sm uppercase tracking-wide ${borrowingLimitReached ? 'text-red-700' : 'text-blue-700'}`}>Borrowing Status</p>
+            <p className={`text-xl ${borrowingLimitReached ? 'text-red-900' : 'text-blue-900'}`}>{activeBorrowCount}/{MAX_ACTIVE_BORROW_LIMIT} items borrowed</p>
+          </div>
+          <div className={`px-3 py-1 rounded-full text-sm font-medium ${borrowingLimitReached ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+            {borrowingLimitReached ? 'Limit reached' : 'Within limit'}
+          </div>
+        </div>
+        {borrowingLimitReached && (
+          <p className="mt-3 text-sm text-red-700">{getBorrowingLimitMessage()}</p>
+        )}
+      </div>
+
       {/* Warning for Missing Items */}
       {hasUnresolvedMissingItems && (
         <div className="bg-red-50 border-2 border-red-500 rounded-lg p-5">
@@ -172,7 +203,7 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Request Form */}
         <div className={`bg-white rounded-lg shadow-sm p-6 border border-gray-200 ${
-          hasUnresolvedMissingItems ? 'opacity-50 pointer-events-none' : ''
+          hasUnresolvedMissingItems || borrowingLimitReached ? 'opacity-50 pointer-events-none' : ''
         }`}>
           <h3 className="text-lg text-gray-800 mb-4">Equipment Request Form</h3>
           
@@ -247,18 +278,18 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
                 Equipment must be returned within 8 hours (school time only)
               </p>
               <p className="text-xs text-orange-600 mt-1">
-                Late returns are charged ₱20 per hour overdue
+                Late returns are charged ₱100 per overdue day
               </p>
             </div>
 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={!selectedEquipment || !borrowTime}
+              disabled={!selectedEquipment || !borrowTime || hasUnresolvedMissingItems || borrowingLimitReached}
               className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="w-4 h-4" />
-              Submit Request
+              {borrowingLimitReached ? 'Borrowing Limit Reached' : 'Submit Request'}
             </button>
           </form>
         </div>
@@ -350,26 +381,6 @@ export function RequestPage({ equipment, onSubmitRequest, user, requests }: Requ
               </p>
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Available Equipment Count */}
-      <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
-        <div className="flex items-center justify-between">
-          <p className="text-gray-700">
-            <span className="text-2xl text-gray-900">{availableEquipment.length}</span> equipment available for borrowing
-          </p>
-          <div className="flex gap-2 text-sm">
-            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded">
-              Arnis: {availableEquipment.filter(e => e.category === 'Arnis').length}
-            </span>
-            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded">
-              Basketball: {availableEquipment.filter(e => e.category === 'Basketball').length}
-            </span>
-            <span className="px-3 py-1 bg-gray-100 text-gray-700 rounded">
-              Laptop: {availableEquipment.filter(e => e.category === 'Laptop').length}
-            </span>
-          </div>
         </div>
       </div>
 

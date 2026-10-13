@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, CreditCard, Smartphone, Wallet, Download, CheckCircle } from 'lucide-react';
+import { X, CreditCard, Smartphone, Wallet, Download, AlertCircle, CheckCircle } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { BorrowRequest } from '../types';
 
@@ -73,7 +73,7 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
 
     // Equipment Details Section
     doc.setFillColor(248, 249, 250);
-    doc.roundedRect(15, yPos, 180, req.overdueHours ? 50 : 42, 3, 3, 'F');
+    doc.roundedRect(15, yPos, 180, req.overdueDays ? 50 : 42, 3, 3, 'F');
 
     doc.setFontSize(12);
     doc.setTextColor(30, 64, 175);
@@ -86,8 +86,8 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
     doc.text(`Borrow Date: ${req.borrowDate}`, 20, yPos + 29);
     doc.text(`Due Date: ${req.dueDate}`, 20, yPos + 36);
 
-    if (req.overdueHours) {
-      doc.text(`Overdue Hours: ${req.overdueHours} hour(s)`, 20, yPos + 43);
+    if (req.overdueDays) {
+      doc.text(`Overdue Days: ${req.overdueDays} day(s)`, 20, yPos + 43);
       yPos += 60;
     } else {
       yPos += 52;
@@ -109,7 +109,7 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
 
     doc.setFontSize(8);
     doc.setTextColor(153, 27, 27);
-    const penaltyNote = req.overdueHours ? `₱20.00 per hour × ${req.overdueHours} hour(s)` : 'Late return penalty';
+    const penaltyNote = req.overdueDays ? `₱100.00 per day × ${req.overdueDays} day(s)` : '₱100 per overdue day';
     doc.text(penaltyNote, 105, yPos + 25, { align: 'center' });
 
     yPos += 38;
@@ -209,9 +209,9 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
                 <p className="text-sm text-gray-600 mb-1">Total Penalty Amount</p>
                 <p className="text-4xl text-red-600 mb-2">₱{request.penalty || 0}</p>
                 <p className="text-xs text-gray-600">
-                  {request.overdueHours
-                    ? `${request.overdueHours} hour(s) overdue × ₱20/hour`
-                    : 'Late return penalty'}
+                  {request.overdueDays
+                    ? `${request.overdueDays} overdue day(s) × ₱100/day`
+                    : 'Late return penalty: ₱100 per overdue day'}
                 </p>
               </div>
               <div className="mt-4 text-sm text-gray-700 bg-white rounded-lg p-3">
@@ -345,22 +345,22 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
                     : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 }`}
               >
-                {selectedMethod === 'cash' ? 'Download Form' : 'Proceed to Payment'}
+                {selectedMethod === 'cash' ? 'Download Form' : 'Submit for Verification'}
               </button>
             </div>
           </>
         ) : (
           <div className="p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircle className="w-10 h-10 text-green-600" />
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-10 h-10 text-amber-600" />
             </div>
             <h3 className="text-xl text-gray-900 mb-2">
-              {selectedMethod === 'cash' ? 'Form Downloaded!' : 'Payment Initiated!'}
+              {selectedMethod === 'cash' ? 'Payment Form Ready' : 'Payment Submitted for Verification'}
             </h3>
             <p className="text-sm text-gray-600">
               {selectedMethod === 'cash'
-                ? 'Please check your downloads folder for the payment form.'
-                : 'Redirecting to payment gateway...'}
+                ? 'Pay the cashier and present your receipt. Staff must confirm receipt before the fee is marked paid.'
+                : 'Complete the transfer in your GCash or Maya app, then present proof to staff. This system does not mark it paid until staff confirms receipt.'}
             </p>
           </div>
         )}

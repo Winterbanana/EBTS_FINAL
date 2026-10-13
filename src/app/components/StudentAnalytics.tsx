@@ -373,80 +373,61 @@ export function StudentAnalytics({ requests, userId }: StudentAnalyticsProps) {
 
 // Helper functions
 function getMonthlyUsageData(requests: BorrowRequest[]) {
-  const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-  const monthlyCount: { [key: string]: number } = {};
-  
-  months.forEach(month => {
-    monthlyCount[month] = 0;
-  });
+  const months = getRecentMonthBuckets();
+  const monthlyCount = new Map(months.map(month => [month.key, 0]));
 
   requests.forEach(req => {
-    const date = new Date(req.requestDate);
-    const monthName = date.toLocaleString('default', { month: 'short' });
-    if (monthlyCount[monthName] !== undefined) {
-      monthlyCount[monthName]++;
-    }
+    const date = parseDate(req.requestDate);
+    const key = date ? `${date.getFullYear()}-${date.getMonth()}` : '';
+    if (monthlyCount.has(key)) monthlyCount.set(key, (monthlyCount.get(key) || 0) + 1);
   });
 
-  return months.map((month) => ({
-    month,
-    requests: monthlyCount[month],
+  return months.map(({ key, label }) => ({
+    month: label,
+    requests: monthlyCount.get(key) || 0,
   }));
 }
 
 function getCategoryUsageData(requests: BorrowRequest[]) {
-  const categories: { [key: string]: number } = {
-    'Screwdriver Set': 0,
-    'LAN Cable Set': 0,
-    'Cable Pliers': 0,
-    'Wires': 0,
-    'RJ45': 0,
-    'LAN Cables': 0,
-    'Cooking Tool Set': 0,
-    'Projectors': 0,
-    'HDMI Cables': 0,
-    'First Aid Kits': 0,
-  };
-
-  requests.forEach(req => {
-    if (req.equipmentName.includes('Screwdriver')) categories['Screwdriver Set']++;
-    else if (req.equipmentName.includes('LAN Cable Set')) categories['LAN Cable Set']++;
-    else if (req.equipmentName.includes('Pliers')) categories['Cable Pliers']++;
-    else if (req.equipmentName.includes('Wire')) categories['Wires']++;
-    else if (req.equipmentName.includes('RJ45')) categories['RJ45']++;
-    else if (req.equipmentName.includes('LAN Cable')) categories['LAN Cables']++;
-    else if (req.equipmentName.includes('Cooking')) categories['Cooking Tool Set']++;
-    else if (req.equipmentName.includes('Projector')) categories['Projectors']++;
-    else if (req.equipmentName.includes('HDMI')) categories['HDMI Cables']++;
-    else if (req.equipmentName.includes('First Aid')) categories['First Aid Kits']++;
+  const categories = new Map<string, number>();
+  requests.forEach(request => {
+    const category = request.equipmentCategory || 'Other';
+    categories.set(category, (categories.get(category) || 0) + 1);
   });
-
-  return Object.keys(categories).map((key) => ({
-    name: key,
-    requests: categories[key],
-  }));
+  return Array.from(categories, ([name, count]) => ({ name, requests: count }));
 }
 
 function getPenaltyTrendData(requests: BorrowRequest[]) {
-  const months = ['Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb'];
-  const monthlyPenalties: { [key: string]: number } = {};
-  
-  months.forEach(month => {
-    monthlyPenalties[month] = 0;
-  });
+  const months = getRecentMonthBuckets();
+  const monthlyPenalties = new Map(months.map(month => [month.key, 0]));
 
   requests.forEach(req => {
     if (req.penalty && req.returnDate) {
-      const date = new Date(req.returnDate);
-      const monthName = date.toLocaleString('default', { month: 'short' });
-      if (monthlyPenalties[monthName] !== undefined) {
-        monthlyPenalties[monthName] += req.penalty;
-      }
+      const date = parseDate(req.returnDate);
+      const key = date ? `${date.getFullYear()}-${date.getMonth()}` : '';
+      if (monthlyPenalties.has(key)) monthlyPenalties.set(key, (monthlyPenalties.get(key) || 0) + req.penalty);
     }
   });
 
-  return months.map((month) => ({
-    month,
-    penalties: monthlyPenalties[month],
+  return months.map(({ key, label }) => ({
+    month: label,
+    penalties: monthlyPenalties.get(key) || 0,
   }));
+}
+
+function getRecentMonthBuckets() {
+  const current = new Date();
+  return Array.from({ length: 6 }, (_, index) => {
+    const date = new Date(current.getFullYear(), current.getMonth() - 5 + index, 1);
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      label: date.toLocaleString('default', { month: 'short', year: 'numeric' }),
+    };
+  });
+}
+
+function parseDate(value?: string): Date | null {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
 }

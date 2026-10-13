@@ -9,7 +9,7 @@ interface MissingItemManagementProps {
 }
 
 export function MissingItemManagement({ requests, equipment, onUpdateRequests, onUpdateEquipment }: MissingItemManagementProps) {
-  const missingRequests = requests.filter(r => r.status === 'Missing');
+  const missingRequests = requests.filter(r => r.status === 'Missing' || r.reportedMissing || r.missingItemReturned || r.missingItemPaid);
   
   const unresolvedMissing = missingRequests.filter(r => !r.missingItemReturned && !r.missingItemPaid);
   const returnedMissing = missingRequests.filter(r => r.missingItemReturned);
@@ -26,8 +26,11 @@ export function MissingItemManagement({ requests, equipment, onUpdateRequests, o
       r.id === requestId
         ? {
             ...r,
+            status: 'Returned' as const,
             missingItemReturned: true,
             missingItemReturnDate: new Date().toISOString().split('T')[0],
+            missingItemResolvedBy: 'Admin',
+            returnDate: new Date().toISOString().split('T')[0],
           }
         : r
     );
@@ -39,6 +42,7 @@ export function MissingItemManagement({ requests, equipment, onUpdateRequests, o
         ? {
             ...e,
             availableStock: Math.min(e.totalStock, e.availableStock + 1),
+            borrowedStock: Math.max(0, e.borrowedStock),
             status: 'Available' as const,
             markedMissingDate: undefined,
             markedMissingBy: undefined,
@@ -58,6 +62,7 @@ export function MissingItemManagement({ requests, equipment, onUpdateRequests, o
             ...r,
             missingItemPaid: true,
             missingItemPaymentDate: new Date().toISOString().split('T')[0],
+            missingItemResolvedBy: 'Admin',
           }
         : r
     );

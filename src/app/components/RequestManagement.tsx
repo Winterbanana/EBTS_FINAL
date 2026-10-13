@@ -1,28 +1,42 @@
 import { useState } from 'react';
-import { CheckCircle, XCircle, Clock, Calendar, User, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Calendar, User, FileText, AlertTriangle, History } from 'lucide-react';
 import Barcode from 'react-barcode';
 import { BorrowRequest, Equipment } from '../types';
 import { BorrowingSlip } from './BorrowingSlip';
+import { MAX_ACTIVE_BORROW_LIMIT, getBorrowingLimitMessage, getStudentActiveBorrowCount } from '../borrowing';
 
 interface RequestManagementProps {
   requests: BorrowRequest[];
   equipment: Equipment[];
   onUpdateRequests: (requests: BorrowRequest[]) => void;
   onUpdateEquipment: (equipment: Equipment[]) => void;
+  onConfirmPenaltyPayment: (requestId: string) => void;
 }
 
-export function RequestManagement({ requests, equipment, onUpdateRequests, onUpdateEquipment }: RequestManagementProps) {
-  const [filter, setFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
+export function RequestManagement({ requests, equipment, onUpdateRequests, onUpdateEquipment, onConfirmPenaltyPayment }: RequestManagementProps) {
+  const [filter, setFilter] = useState<'Active' | 'Pending' | 'Approved' | 'History'>('Active');
   const [selectedSlip, setSelectedSlip] = useState<BorrowRequest | null>(null);
 
-  const filteredRequests = filter === 'All' 
-    ? requests 
-    : requests.filter(r => r.status === filter);
+  const activeRequests = requests.filter(r => r.status === 'Pending' || r.status === 'Approved');
+  const historyRequests = requests.filter(r =>
+    r.status === 'Rejected' || r.status === 'Returned' || r.status === 'Missing'
+  );
+  const filteredRequests = filter === 'Active'
+    ? activeRequests
+    : filter === 'History'
+      ? historyRequests
+      : requests.filter(r => r.status === filter);
 
   const handleApprove = (request: BorrowRequest) => {
     const item = equipment.find(e => e.id === request.equipmentId);
     if (!item || item.availableStock < 1) {
       alert('This equipment is currently unavailable.');
+      return;
+    }
+
+    const approvedBorrowCount = getStudentActiveBorrowCount(request.studentId, requests);
+    if (approvedBorrowCount >= MAX_ACTIVE_BORROW_LIMIT) {
+      alert(getBorrowingLimitMessage());
       return;
     }
 
@@ -57,19 +71,26 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
   };
 
   const handleReject = (request: BorrowRequest) => {
+    const rejectedDate = new Date().toISOString().split('T')[0];
     const updatedRequests = requests.map(r =>
       r.id === request.id
-        ? { ...r, status: 'Rejected' as const }
+        ? { ...r, status: 'Rejected' as const, rejectedBy: 'ADM001', rejectedDate }
         : r
     );
     onUpdateRequests(updatedRequests);
   };
 
   const handleReturn = (request: BorrowRequest) => {
+    const now = new Date();
     // Update request status
     const updatedRequests = requests.map(r =>
       r.id === request.id
-        ? { ...r, status: 'Returned' as const }
+        ? {
+            ...r,
+            status: 'Returned' as const,
+            returnDate: now.toISOString().split('T')[0],
+            returnTime: now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }),
+          }
         : r
     );
     onUpdateRequests(updatedRequests);
@@ -93,7 +114,7 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
 
   const pendingCount = requests.filter(r => r.status === 'Pending').length;
   const approvedCount = requests.filter(r => r.status === 'Approved').length;
-  const rejectedCount = requests.filter(r => r.status === 'Rejected').length;
+  const historyCount = historyRequests.length;
 
   return (
     <div className="space-y-6">
@@ -101,12 +122,12 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
         <h2 className="text-2xl">Request Management</h2>
         <div className="flex gap-2">
           <button
-            onClick={() => setFilter('All')}
+            onClick={() => setFilter('Active')}
             className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === 'All' ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+              filter === 'Active' ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            All ({requests.length})
+            Active ({activeRequests.length})
           </button>
           <button
             onClick={() => setFilter('Pending')}
@@ -125,12 +146,15 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
             Approved ({approvedCount})
           </button>
           <button
-            onClick={() => setFilter('Rejected')}
+            onClick={() => setFilter('History')}
             className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === 'Rejected' ? 'bg-red-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+              filter === 'History' ? 'bg-purple-700 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            Rejected ({rejectedCount})
+            <span className="inline-flex items-center gap-1.5">
+              <History className="w-4 h-4" />
+              History ({historyCount})
+            </span>
           </button>
         </div>
       </div>
@@ -142,12 +166,18 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
               <div className="flex items-center gap-3">
                 <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
                   request.status === 'Pending' ? 'bg-yellow-100' :
-                  request.status === 'Approved' ? 'bg-green-100' : 'bg-red-100'
+                  request.status === 'Approved' ? 'bg-green-100' :
+                  request.status === 'Returned' ? 'bg-blue-100' :
+                  request.status === 'Missing' ? 'bg-orange-100' : 'bg-red-100'
                 }`}>
                   {request.status === 'Pending' ? (
                     <Clock className="w-6 h-6 text-yellow-600" />
                   ) : request.status === 'Approved' ? (
                     <CheckCircle className="w-6 h-6 text-green-600" />
+                  ) : request.status === 'Returned' ? (
+                    <CheckCircle className="w-6 h-6 text-blue-600" />
+                  ) : request.status === 'Missing' ? (
+                    <AlertTriangle className="w-6 h-6 text-orange-600" />
                   ) : (
                     <XCircle className="w-6 h-6 text-red-600" />
                   )}
@@ -159,7 +189,9 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
               </div>
               <span className={`px-3 py-1 rounded-full text-sm ${
                 request.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
-                request.status === 'Approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                request.status === 'Approved' ? 'bg-green-100 text-green-700' :
+                request.status === 'Returned' ? 'bg-blue-100 text-blue-700' :
+                request.status === 'Missing' ? 'bg-orange-100 text-orange-700' : 'bg-red-100 text-red-700'
               }`}>
                 {request.status}
               </span>
@@ -203,6 +235,20 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
                     <span>{request.approvedDate}</span>
                   </div>
                 )}
+                {request.returnDate && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Calendar className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">{request.status === 'Missing' ? 'Marked missing:' : 'Finalized:'}</span>
+                    <span>{request.returnDate}</span>
+                  </div>
+                )}
+                {request.status === 'Rejected' && request.rejectedDate && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <XCircle className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-600">Rejected:</span>
+                    <span>{request.rejectedDate}</span>
+                  </div>
+                )}
               </div>
 
               <div className="bg-gray-50 p-4 rounded-lg flex justify-center items-center">
@@ -231,6 +277,15 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
 
             {request.status === 'Approved' && (
               <div className="mt-4 pt-4 border-t flex gap-3">
+                {request.penaltyPaymentStatus === 'Pending' && (
+                  <button
+                    onClick={() => onConfirmPenaltyPayment(request.id)}
+                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition-colors"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Confirm Penalty Payment Received
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedSlip(request)}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
@@ -252,8 +307,12 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
 
         {filteredRequests.length === 0 && (
           <div className="bg-white rounded-lg shadow-sm p-12 text-center">
-            <Clock className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600">No {filter !== 'All' ? filter.toLowerCase() : ''} requests found</p>
+            {filter === 'History'
+              ? <History className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+              : <Clock className="w-12 h-12 text-gray-400 mx-auto mb-3" />}
+            <p className="text-gray-600">
+              {filter === 'History' ? 'No completed or rejected requests in history' : `No ${filter === 'Active' ? 'active' : filter.toLowerCase()} requests found`}
+            </p>
           </div>
         )}
       </div>

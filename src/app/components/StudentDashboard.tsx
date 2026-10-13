@@ -10,7 +10,9 @@ import { PDFReportPage } from './PDFReportPage';
 import { PendingRequestsPage } from './PendingRequestsPage';
 import { StudentAnalytics } from './StudentAnalytics';
 import { Equipment, BorrowRequest, User as UserType } from '../types';
+import { MAX_ACTIVE_BORROW_LIMIT, getBorrowingLimitMessage, getStudentActiveBorrowCount } from '../borrowing';
 import wccLogo from '../../imports/image.png';
+import { calculateOverduePenalty } from '../penalties';
 
 interface StudentDashboardProps {
   user: UserType;
@@ -43,8 +45,10 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
   const unresolvedMissingItems = userRequests.filter(
     r => r.status === 'Missing' && !r.missingItemReturned && !r.missingItemPaid
   );
+  const activeBorrowCount = getStudentActiveBorrowCount(user.id, requests);
+  const borrowingLimitReached = activeBorrowCount >= MAX_ACTIVE_BORROW_LIMIT;
   const totalMissingDebt = unresolvedMissingItems.length * 200;
-  const canBorrow = unresolvedMissingItems.length === 0;
+  const canBorrow = unresolvedMissingItems.length === 0 && !borrowingLimitReached;
 
   const handleLogout = () => {
     onLogout();
@@ -59,18 +63,7 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
   };
 
   const calculatePenalty = (dueDate: string): number => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return diffDays * 20; // 20 pesos per day
-    }
-    return 0;
+    return calculateOverduePenalty(dueDate);
   };
 
   const totalPenalty = approvedRequests.reduce((sum, req) => sum + calculatePenalty(req.dueDate), 0);
@@ -134,8 +127,8 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
               <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => handlePhotoUpload(e.target.files?.[0])} />
             </div>
             <div className="flex-1">
-              <h2 className="text-lg text-gray-900">{user.name}</h2>
-              <div className="flex items-center gap-4 text-sm text-gray-600">
+              <h2 className="text-lg text-gray-900 uppercase tracking-wide">{user.name}</h2>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
                 <span className="flex items-center gap-1">
                   <span className="font-medium">ID:</span> {user.id}
                 </span>
@@ -150,6 +143,15 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                   </span>
                 )}
               </div>
+              <div className="mt-2 flex items-center gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-800">Borrowing Status</span>
+                <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${borrowingLimitReached ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                  {activeBorrowCount}/{MAX_ACTIVE_BORROW_LIMIT} items borrowed
+                </span>
+              </div>
+              {borrowingLimitReached && (
+                <p className="mt-1 text-xs text-red-700">{getBorrowingLimitMessage()}</p>
+              )}
             </div>
           </div>
         </div>
@@ -384,7 +386,7 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
           </div>
         )}
 
-        {activeTab === 'equipment' && <EquipmentList equipment={equipment} />}
+        {activeTab === 'equipment' && <EquipmentList equipment={equipment} requests={requests} />}
         {activeTab === 'request' && <RequestPage equipment={equipment} onSubmitRequest={onAddRequest} user={user} requests={requests} />}
         {activeTab === 'pending' && <PendingRequestsPage requests={userRequests} />}
         {activeTab === 'approved' && <ApprovedRequests requests={approvedRequests} />}
@@ -447,14 +449,15 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                         <td className="px-4 py-3 text-gray-700">{req.conditionAfter || req.conditionBefore || '—'}</td>
                         <td className="px-4 py-3">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            req.status === 'Returned' ? 'bg-green-100 text-green-700' :
+                            req.status === 'Returned' || req.missingItemReturned ? 'bg-green-100 text-green-700' :
+                            req.missingItemPaid ? 'bg-blue-100 text-blue-700' :
                             req.status === 'Approved' ? 'bg-blue-100 text-blue-700' :
                             req.status === 'Pending' ? 'bg-orange-100 text-orange-700' :
                             req.status === 'Rejected' ? 'bg-red-100 text-red-700' :
                             req.status === 'Missing' ? 'bg-red-200 text-red-900' :
                             'bg-gray-100 text-gray-700'
                           }`}>
-                            {req.status}
+                            {req.missingItemReturned ? 'Returned' : req.missingItemPaid ? 'Paid' : req.status}
                           </span>
                         </td>
                       </tr>
@@ -475,7 +478,9 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
             </div>
             <p className="text-sm text-gray-500 mb-4">Complete record of all penalties incurred and payments issued.</p>
             {(() => {
-              const penaltyRecords = userRequests.filter(r => (r.penalty && r.penalty > 0) || r.status === 'Missing');
+              const penaltyRecords = userRequests.filter(r =>
+                (r.penalty && r.penalty > 0) || r.status === 'Missing' || r.reportedMissing || r.missingItemReturned || r.missingItemPaid
+              );
               return penaltyRecords.length === 0 ? (
                 <div className="bg-white rounded-lg shadow-sm p-12 border border-gray-200 text-center">
                   <Receipt className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -486,15 +491,15 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                     <div className="bg-red-50 rounded-lg p-4 border border-red-200">
                       <p className="text-xs text-red-600 mb-1">Total Penalties</p>
-                      <p className="text-2xl text-red-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penalty || 0), 0)}</p>
+                      <p className="text-2xl text-red-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penalty || 0) + (r.reportedMissing ? 200 : 0), 0)}</p>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
                       <p className="text-xs text-orange-600 mb-1">Paid</p>
-                      <p className="text-2xl text-orange-700 font-bold">₱{penaltyRecords.filter(r => r.penaltyPaid).reduce((s, r) => s + (r.penalty || 0), 0)}</p>
+                      <p className="text-2xl text-orange-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid ? (r.penalty || 0) : 0) + (r.missingItemPaid ? 200 : 0), 0)}</p>
                     </div>
                     <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
                       <p className="text-xs text-yellow-600 mb-1">Outstanding</p>
-                      <p className="text-2xl text-yellow-700 font-bold">₱{penaltyRecords.filter(r => !r.penaltyPaid).reduce((s, r) => s + (r.penalty || 0), 0)}</p>
+                      <p className="text-2xl text-yellow-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid ? 0 : (r.penalty || 0)) + (r.reportedMissing && !r.missingItemPaid && !r.missingItemReturned ? 200 : 0), 0)}</p>
                     </div>
                   </div>
                   <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -506,7 +511,7 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                           <th className="px-4 py-3 text-left font-medium">Penalty Amount</th>
                           <th className="px-4 py-3 text-left font-medium">Date Incurred</th>
                           <th className="px-4 py-3 text-left font-medium">Time Incurred</th>
-                          <th className="px-4 py-3 text-left font-medium">Overdue Hours</th>
+                          <th className="px-4 py-3 text-left font-medium">Overdue Days</th>
                           <th className="px-4 py-3 text-left font-medium">Payment Method</th>
                           <th className="px-4 py-3 text-left font-medium">Payment Date</th>
                           <th className="px-4 py-3 text-left font-medium">Payment Status</th>
@@ -514,17 +519,18 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                       </thead>
                       <tbody>
                         {penaltyRecords.slice().reverse().map((req, idx) => {
-                          const penaltyType = req.status === 'Missing'
+                          const isMissingItem = req.reportedMissing || req.status === 'Missing' || req.missingItemReturned || req.missingItemPaid;
+                          const penaltyType = isMissingItem
                             ? 'Missing Item (₱200 replacement fee)'
-                            : req.overdueHours
-                            ? `Overdue Return (₱20 × ${req.overdueHours}h)`
+                            : req.overdueDays
+                            ? `Overdue Return (₱100 × ${req.overdueDays} day(s))`
                             : 'Late Return Penalty';
                           return (
                             <tr key={req.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-red-50'}>
                               <td className="px-4 py-3 font-medium text-gray-900">{req.equipmentName}</td>
                               <td className="px-4 py-3 text-gray-700">{penaltyType}</td>
                               <td className="px-4 py-3 font-bold text-red-700">
-                                ₱{req.status === 'Missing' ? 200 : (req.penalty || 0)}
+                                ₱{(req.penalty || 0) + (isMissingItem ? 200 : 0)}
                               </td>
                               <td className="px-4 py-3 text-gray-700">
                                 {req.returnDate
@@ -535,19 +541,23 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                               </td>
                               <td className="px-4 py-3 text-gray-700">{req.returnTime || '—'}</td>
                               <td className="px-4 py-3 text-gray-700">
-                                {req.overdueHours ? `${req.overdueHours}h` : '—'}
+                                {req.overdueDays ? `${req.overdueDays} day(s)` : '—'}
                               </td>
                               <td className="px-4 py-3 text-gray-700">
                                 {req.penaltyPaymentMethod || (req.missingItemPaid ? 'Paid' : '—')}
                               </td>
                               <td className="px-4 py-3 text-gray-700">
-                                {req.penaltyPaymentDate
-                                  ? new Date(req.penaltyPaymentDate).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
+                                {req.missingItemPaymentDate || req.missingItemReturnDate || req.penaltyPaymentDate
+                                  ? new Date(req.missingItemPaymentDate || req.missingItemReturnDate || req.penaltyPaymentDate || '').toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
                                   : '—'}
                               </td>
                               <td className="px-4 py-3">
-                                {req.penaltyPaid || req.missingItemPaid ? (
+                                {req.missingItemReturned ? (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Returned</span>
+                                ) : req.penaltyPaid || req.missingItemPaid ? (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>
+                                ) : req.penaltyPaymentStatus === 'Pending' ? (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Verification</span>
                                 ) : (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Unpaid</span>
                                 )}

@@ -42,7 +42,7 @@ ${request.approvedBy ? `Approved By: ${request.approvedBy}` : ''}
 ${request.approvedDate ? `Approved Date: ${request.approvedDate}` : ''}
 
 Note: Equipment must be returned on time.
-Late returns incur a penalty of ₱20 per hour.
+Late returns incur a penalty of ₱100 per overdue day.
 
 Generated: ${new Date().toLocaleString()}
 ========================
@@ -216,7 +216,7 @@ Generated: ${new Date().toLocaleString()}
             <h4 className="text-sm text-orange-900 mb-2">⚠️ Important Reminders:</h4>
             <ul className="text-xs text-orange-800 space-y-1">
               <li>• Equipment must be returned within 8 hours from borrow time</li>
-              <li>• Late returns incur a penalty of ₱20 per hour</li>
+              <li>• Late returns incur a penalty of ₱100 per overdue day</li>
               <li>• Report any damages or issues immediately</li>
               <li>• Missing items are charged ₱200 per item</li>
               <li>• Present this slip when returning the equipment</li>

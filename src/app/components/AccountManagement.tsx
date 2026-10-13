@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { UserPlus, Trash2, Edit, Search, Users, Shield, Briefcase, X } from 'lucide-react';
-import { User } from '../types';
+import { BorrowRequest, User } from '../types';
+import { MAX_ACTIVE_BORROW_LIMIT, getStudentActiveBorrowCount } from '../borrowing';
 
 interface AccountManagementProps {
   users: User[];
+  requests: BorrowRequest[];
   onUpdateUsers: (users: User[]) => void;
 }
 
-export function AccountManagement({ users, onUpdateUsers }: AccountManagementProps) {
+export function AccountManagement({ users, requests, onUpdateUsers }: AccountManagementProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState<'all' | 'student' | 'admin' | 'staff'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -203,7 +205,7 @@ export function AccountManagement({ users, onUpdateUsers }: AccountManagementPro
       </div>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Total Accounts</p>
           <p className="text-2xl text-gray-900">{users.length}</p>
@@ -211,6 +213,10 @@ export function AccountManagement({ users, onUpdateUsers }: AccountManagementPro
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Students</p>
           <p className="text-2xl text-green-600">{users.filter(u => u.role === 'student').length}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+          <p className="text-sm text-gray-600 mb-1">At Limit</p>
+          <p className="text-2xl text-red-600">{users.filter(u => u.role === 'student' && getStudentActiveBorrowCount(u.id, requests) >= MAX_ACTIVE_BORROW_LIMIT).length}</p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-600 mb-1">Staff (Max 2)</p>
@@ -231,6 +237,7 @@ export function AccountManagement({ users, onUpdateUsers }: AccountManagementPro
                 <th className="text-left px-4 py-3 text-sm text-gray-700">ID</th>
                 <th className="text-left px-4 py-3 text-sm text-gray-700">Name</th>
                 <th className="text-left px-4 py-3 text-sm text-gray-700">Role</th>
+                <th className="text-left px-4 py-3 text-sm text-gray-700">Borrowing</th>
                 <th className="text-left px-4 py-3 text-sm text-gray-700">Course/Section</th>
                 <th className="text-left px-4 py-3 text-sm text-gray-700">Contact</th>
                 <th className="text-right px-4 py-3 text-sm text-gray-700">Actions</th>
@@ -246,6 +253,15 @@ export function AccountManagement({ users, onUpdateUsers }: AccountManagementPro
                       {getRoleIcon(user.role)}
                       <span className="capitalize">{user.role}</span>
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {user.role === 'student' ? (
+                      <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${getStudentActiveBorrowCount(user.id, requests) >= MAX_ACTIVE_BORROW_LIMIT ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {getStudentActiveBorrowCount(user.id, requests)}/{MAX_ACTIVE_BORROW_LIMIT}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-700">
                     {user.course && user.section ? `${user.course} ${user.section}` : '-'}

@@ -1,16 +1,20 @@
-import { Package, TrendingUp, TrendingDown, AlertCircle, AlertTriangle, Edit, Download, Plus } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertCircle, AlertTriangle, Edit, Download, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { Equipment } from '../types';
+import { BorrowRequest, Equipment } from '../types';
 import { AddEquipmentModal } from './AddEquipmentModal';
+import { getInventoryMetrics } from '../inventoryMetrics';
 
 interface StockCheckerProps {
   equipment: Equipment[];
+  requests: BorrowRequest[];
   onUpdateEquipment: (equipment: Equipment[]) => void;
+  onRemoveEquipment?: (equipmentId: string) => void;
+  canRemoveEquipment?: boolean;
 }
 
-export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps) {
+export function StockChecker({ equipment, requests, onUpdateEquipment, onRemoveEquipment, canRemoveEquipment = false }: StockCheckerProps) {
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [editCondition, setEditCondition] = useState<'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Damaged'>('Good');
   const [editNotes, setEditNotes] = useState('');
@@ -18,13 +22,14 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
 
   // Dynamically get all unique categories from equipment
   const uniqueCategories = Array.from(new Set(equipment.map(e => e.category))).sort();
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
 
   const getStockByCategory = (category: string) => {
     const items = equipment.filter(e => e.category === category);
-    const totalStock = items.reduce((sum, e) => sum + e.totalStock, 0);
-    const availableStock = items.reduce((sum, e) => sum + e.availableStock, 0);
-    const borrowedStock = items.reduce((sum, e) => sum + e.borrowedStock, 0);
-    const missingItems = items.filter(e => e.status === 'Missing').length;
+    const totalStock = items.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.total || 0), 0);
+    const availableStock = items.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.available || 0), 0);
+    const borrowedStock = items.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.borrowed || 0), 0);
+    const missingItems = items.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.missing || 0), 0);
     const utilizationRate = totalStock > 0 ? (borrowedStock / totalStock) * 100 : 0;
 
     return {
@@ -45,9 +50,21 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
         ? {
             ...e,
             status: 'Missing' as const,
+            availableStock: 0,
             markedMissingDate: new Date().toISOString().split('T')[0],
             markedMissingBy: 'System Administrator',
           }
+        : e
+    );
+    onUpdateEquipment(updatedEquipment);
+  };
+
+  const handleMarkAsUnavailable = (itemId: string) => {
+    if (!confirm('Mark this equipment as unavailable?')) return;
+
+    const updatedEquipment = equipment.map(e =>
+      e.id === itemId
+        ? { ...e, status: 'Unavailable' as const, availableStock: 0 }
         : e
     );
     onUpdateEquipment(updatedEquipment);
@@ -60,7 +77,9 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
       e.id === itemId
         ? {
             ...e,
-            status: 'Available' as const,
+            availableStock: Math.max(0, e.totalStock - (inventoryMetrics.byEquipmentId.get(e.id)?.borrowed || 0)),
+            borrowedStock: inventoryMetrics.byEquipmentId.get(e.id)?.borrowed || 0,
+            status: (inventoryMetrics.byEquipmentId.get(e.id)?.borrowed ? 'Borrowed' : 'Available') as Equipment['status'],
             markedMissingDate: undefined,
             markedMissingBy: undefined,
             lastBorrowedBy: undefined,
@@ -99,10 +118,7 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
   };
 
   const generateAuditPDF = () => {
-    const totalStock = equipment.reduce((sum, e) => sum + e.totalStock, 0);
-    const availableStock = equipment.reduce((sum, e) => sum + e.availableStock, 0);
-    const borrowedStock = equipment.reduce((sum, e) => sum + e.borrowedStock, 0);
-    const missingCount = equipment.filter(e => e.status === 'Missing').length;
+    const { total: totalStock, available: availableStock, borrowed: borrowedStock, missing: missingCount } = inventoryMetrics;
 
     const doc = new jsPDF('landscape');
 
@@ -201,8 +217,8 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
         item.name.substring(0, 25),
         item.qrcode,
         String(item.totalStock),
-        String(item.availableStock),
-        String(item.borrowedStock),
+        String(inventoryMetrics.byEquipmentId.get(item.id)?.available || 0),
+        String(inventoryMetrics.byEquipmentId.get(item.id)?.borrowed || 0),
         item.qualityCondition,
         item.status,
         item.lastConditionUpdate || 'N/A'
@@ -404,14 +420,14 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
               </thead>
               <tbody>
                 {data.items.map(item => (
-                  <tr key={item.id} className={`border-b hover:bg-gray-50 ${item.status === 'Missing' ? 'bg-red-50' : ''}`}>
+                  <tr key={item.id} className={`border-b hover:bg-gray-50 ${item.status === 'Missing' ? 'bg-red-50' : item.status === 'Unavailable' ? 'bg-orange-50' : ''}`}>
                     <td className="py-3 px-4 font-medium">{item.name}</td>
                     <td className="py-3 px-4">
                       <code className="text-sm bg-gray-100 px-2 py-1 rounded">{item.qrcode}</code>
                     </td>
                     <td className="py-3 px-4 font-semibold">{item.totalStock}</td>
-                    <td className="py-3 px-4 font-semibold text-green-600">{item.availableStock}</td>
-                    <td className="py-3 px-4 font-semibold text-orange-600">{item.borrowedStock}</td>
+                    <td className="py-3 px-4 font-semibold text-green-600">{inventoryMetrics.byEquipmentId.get(item.id)?.available || 0}</td>
+                    <td className="py-3 px-4 font-semibold text-orange-600">{inventoryMetrics.byEquipmentId.get(item.id)?.borrowed || 0}</td>
                     <td className="py-3 px-4">
                       {editingItem === item.id ? (
                         <div className="space-y-2">
@@ -488,21 +504,43 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex flex-col gap-1">
-                        {item.status !== 'Missing' && (
+                      <div className={`grid items-center gap-2 ${canRemoveEquipment ? 'min-w-[200px] grid-cols-2' : 'min-w-[100px] grid-cols-1'}`}>
+                        {item.status !== 'Missing' && item.status !== 'Unavailable' && (
                           <button
                             onClick={() => handleMarkAsMissing(item.id)}
-                            className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700 transition-colors"
+                            className="inline-flex min-h-10 w-full items-center justify-center rounded bg-red-600 px-2 py-1 text-center text-[11px] leading-tight text-white transition-colors hover:bg-red-700"
                           >
                             Mark Missing
                           </button>
                         )}
-                        {item.status === 'Missing' && (
+                        {item.status !== 'Missing' && item.status !== 'Unavailable' && (
+                          <button
+                            onClick={() => handleMarkAsUnavailable(item.id)}
+                            className="inline-flex min-h-10 w-full items-center justify-center rounded bg-orange-600 px-2 py-1 text-center text-[11px] leading-tight text-white transition-colors hover:bg-orange-700"
+                          >
+                            Mark Unavailable
+                          </button>
+                        )}
+                        {(item.status === 'Missing' || item.status === 'Unavailable') && (
                           <button
                             onClick={() => handleMarkAsAvailable(item.id)}
-                            className="px-3 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 transition-colors"
+                            className="inline-flex min-h-10 w-full items-center justify-center rounded bg-green-600 px-2 py-1 text-center text-[11px] leading-tight text-white transition-colors hover:bg-green-700"
                           >
                             Mark Available
+                          </button>
+                        )}
+                        {canRemoveEquipment && onRemoveEquipment && (
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove ${item.name} from inventory? Historical requests will be retained.`)) {
+                                onRemoveEquipment(item.id);
+                              }
+                            }}
+                            className="inline-flex min-h-10 w-full items-center justify-center gap-1 rounded bg-gray-800 px-2 py-1 text-center text-[11px] leading-tight text-white transition-colors hover:bg-black"
+                            title={`Remove ${item.name}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Remove Equipment
                           </button>
                         )}
                       </div>
@@ -526,12 +564,12 @@ export function StockChecker({ equipment, onUpdateEquipment }: StockCheckerProps
           </div>
           <div className="text-center p-4 bg-green-50 rounded-lg border border-green-200">
             <TrendingUp className="w-8 h-8 text-green-600 mx-auto mb-2" />
-            <p className="text-2xl mb-1">{equipment.reduce((sum, e) => sum + e.availableStock, 0)}</p>
+            <p className="text-2xl mb-1">{inventoryMetrics.available}</p>
             <p className="text-sm text-gray-600">Available Units</p>
           </div>
           <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
             <TrendingDown className="w-8 h-8 text-orange-600 mx-auto mb-2" />
-            <p className="text-2xl mb-1">{equipment.reduce((sum, e) => sum + e.borrowedStock, 0)}</p>
+            <p className="text-2xl mb-1">{inventoryMetrics.borrowed}</p>
             <p className="text-sm text-gray-600">Borrowed Units</p>
           </div>
           <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">

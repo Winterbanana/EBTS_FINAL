@@ -1,20 +1,23 @@
 import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Package, Search, Camera, AlertTriangle, ImageIcon } from 'lucide-react';
-import { Equipment } from '../types';
+import { BorrowRequest, Equipment } from '../types';
 import { QRScanner } from './QRScanner';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { getInventoryMetrics } from '../inventoryMetrics';
 
 interface EquipmentListProps {
   equipment: Equipment[];
+  requests: BorrowRequest[];
 }
 
-export function EquipmentList({ equipment }: EquipmentListProps) {
+export function EquipmentList({ equipment, requests }: EquipmentListProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('All');
   const [filterStatus, setFilterStatus] = useState<'All' | 'Available' | 'Borrowed'>('All');
   const [showScanner, setShowScanner] = useState(false);
   const [scannedQR, setScannedQR] = useState('');
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
 
   // Dynamically extract unique categories from equipment
   const availableCategories = Array.from(new Set(equipment.map(item => item.category))).sort();
@@ -24,11 +27,23 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
                          item.qrcode.includes(searchTerm) ||
                          item.id.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = filterCategory === 'All' || item.category === filterCategory;
-    const matchesStatus = filterStatus === 'All' || item.status === filterStatus || 
-                         (filterStatus === 'Available' && item.status === 'Missing'); // Include missing in filters
+    const itemMetrics = inventoryMetrics.byEquipmentId.get(item.id);
+    const matchesStatus = filterStatus === 'All' ||
+               (filterStatus === 'Available' && (itemMetrics?.available || 0) > 0) ||
+               (filterStatus === 'Borrowed' && (itemMetrics?.borrowed || 0) > 0);
     const matchesScanned = !scannedQR || item.qrcode === scannedQR;
     return matchesSearch && matchesCategory && matchesStatus && matchesScanned;
   });
+
+  const equipmentGroups = filterCategory === 'All'
+    ? Array.from(filteredEquipment.reduce((groups, item) => {
+        const key = item.photoUrl ? `${item.name.toLowerCase()}|${item.photoUrl}` : item.id;
+        const group = groups.get(key) || [];
+        group.push(item);
+        groups.set(key, group);
+        return groups;
+      }, new Map<string, Equipment[]>()).values())
+    : filteredEquipment.map(item => [item]);
 
   // Helper function to get quality condition color
   const getConditionColor = (condition: string) => {
@@ -132,30 +147,30 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Equipment Types</p>
-          <p className="text-2xl text-gray-800">{filteredEquipment.length}</p>
+          <p className="text-2xl text-gray-800">{equipmentGroups.length}</p>
           <p className="text-xs text-gray-500 mt-1">
-            {filteredEquipment.reduce((sum, e) => sum + e.totalStock, 0)} total units
+            {filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.total || 0), 0)} total units
           </p>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Available Stock</p>
           <p className="text-2xl text-green-600">
-            {filteredEquipment.reduce((sum, e) => sum + e.availableStock, 0)}
+            {filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.available || 0), 0)}
           </p>
           <p className="text-xs text-gray-500 mt-1">units ready to borrow</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Borrowed Stock</p>
           <p className="text-2xl text-orange-600">
-            {filteredEquipment.reduce((sum, e) => sum + e.borrowedStock, 0)}
+            {filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.borrowed || 0), 0)}
           </p>
           <p className="text-xs text-gray-500 mt-1">units in use</p>
         </div>
         <div className="bg-white rounded-lg shadow-sm p-4 border border-gray-200">
           <p className="text-sm text-gray-600 mb-1">Utilization Rate</p>
           <p className="text-2xl text-blue-600">
-            {filteredEquipment.reduce((sum, e) => sum + e.totalStock, 0) > 0
-              ? Math.round((filteredEquipment.reduce((sum, e) => sum + e.borrowedStock, 0) / filteredEquipment.reduce((sum, e) => sum + e.totalStock, 0)) * 100)
+            {filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.total || 0), 0) > 0
+              ? Math.round((filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.borrowed || 0), 0) / filteredEquipment.reduce((sum, e) => sum + (inventoryMetrics.byEquipmentId.get(e.id)?.total || 0), 0)) * 100)
               : 0}%
           </p>
           <p className="text-xs text-gray-500 mt-1">equipment in use</p>
@@ -164,13 +179,21 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
 
       {/* Equipment Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredEquipment.map(item => (
+        {equipmentGroups.map(group => {
+          const item = group[0];
+          const totalStock = group.reduce((sum, equipmentItem) => sum + (inventoryMetrics.byEquipmentId.get(equipmentItem.id)?.total || 0), 0);
+          const availableStock = group.reduce((sum, equipmentItem) => sum + (inventoryMetrics.byEquipmentId.get(equipmentItem.id)?.available || 0), 0);
+          const borrowedStock = group.reduce((sum, equipmentItem) => sum + (inventoryMetrics.byEquipmentId.get(equipmentItem.id)?.borrowed || 0), 0);
+          const categories = Array.from(new Set(group.map(equipmentItem => equipmentItem.category)));
+          const programs = Array.from(new Set(group.map(equipmentItem => equipmentItem.program).filter(Boolean)));
+
+          return (
           <div
-            key={item.id}
+            key={group.map(equipmentItem => equipmentItem.id).join('|')}
             className={`rounded-lg shadow-sm p-5 border-2 transition-all ${
-              item.availableStock === 0
+              availableStock === 0
                 ? 'bg-red-50 border-red-200 hover:border-red-400'
-                : item.availableStock < 2
+                : availableStock < 2
                 ? 'bg-yellow-50 border-yellow-200 hover:border-yellow-400'
                 : 'bg-white border-green-200 hover:border-green-400'
             }`}
@@ -180,22 +203,24 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
                 <h3 className="text-lg mb-1 text-gray-800">
                   {item.name}
                 </h3>
-                <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">
-                  {item.category}
-                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {item.brand && <span className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded">{item.brand}</span>}
+                  {categories.map(category => <span key={category} className="text-xs px-2 py-1 bg-blue-50 text-blue-800 rounded">{category}</span>)}
+                </div>
+                {programs.length > 0 && <p className="mt-1 text-xs text-gray-500">{programs.join(' · ')}</p>}
               </div>
               <div className="flex flex-col items-end gap-1">
                 <span className={`px-3 py-1 text-xs rounded-full ${
-                  item.availableStock === 0
+                  availableStock === 0
                     ? 'bg-red-100 text-red-700'
-                    : item.availableStock < 2
+                    : availableStock < 2
                     ? 'bg-yellow-100 text-yellow-700'
                     : 'bg-green-100 text-green-700'
                 }`}>
-                  {item.availableStock === 0 ? 'Out of Stock' : item.availableStock < 2 ? 'Low Stock' : 'In Stock'}
+                  {availableStock === 0 ? 'Out of Stock' : availableStock < 2 ? 'Low Stock' : 'In Stock'}
                 </span>
                 <span className="text-xs text-gray-500">
-                  {item.availableStock}/{item.totalStock}
+                  {availableStock}/{totalStock}
                 </span>
               </div>
             </div>
@@ -221,17 +246,14 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
               </div>
 
               {/* QR Code */}
-              <div className="p-3 rounded-lg flex flex-col items-center justify-center border bg-gray-50 border-gray-200">
-                <QRCodeSVG
-                  value={item.qrcode}
-                  size={90}
-                  level="H"
-                  includeMargin={true}
-                  fgColor="#1F2937"
-                />
-                <div className="mt-2">
-                  <p className="text-xs text-gray-600 text-center">QR Code</p>
-                </div>
+              <div className="p-2 rounded-lg flex flex-wrap items-center justify-center gap-2 border bg-gray-50 border-gray-200">
+                {group.map(equipmentItem => (
+                  <div key={equipmentItem.id} className="flex flex-col items-center">
+                    <QRCodeSVG value={equipmentItem.qrcode} size={group.length > 1 ? 62 : 90} level="H" includeMargin={true} fgColor="#1F2937" />
+                    {group.length > 1 && <span className="text-[10px] text-gray-600">{equipmentItem.category}</span>}
+                  </div>
+                ))}
+                <p className="w-full text-xs text-gray-600 text-center">QR Code{group.length > 1 ? 's' : ''}</p>
               </div>
             </div>
 
@@ -240,31 +262,49 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
               <div className="pt-2 pb-2 border-t border-b border-blue-200 bg-blue-50 rounded px-3 -mx-1">
                 <div className="flex justify-between items-center mb-1">
                   <span className="text-gray-700">Available Stock:</span>
-                  <span className="text-2xl text-green-600">{item.availableStock}</span>
+                  <span className="text-2xl text-green-600">{availableStock}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs text-gray-600">
                   <span>Total Stock:</span>
-                  <span>{item.totalStock} units</span>
+                  <span>{totalStock} units</span>
                 </div>
-                {item.borrowedStock > 0 && (
+                {borrowedStock > 0 && (
                   <div className="flex justify-between items-center text-xs text-orange-600 mt-1">
                     <span>Currently Borrowed:</span>
-                    <span>{item.borrowedStock} unit{item.borrowedStock > 1 ? 's' : ''}</span>
+                    <span>{borrowedStock} unit{borrowedStock > 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                {group.length > 1 && (
+                  <div className="mt-2 space-y-1 border-t border-blue-200 pt-2">
+                    {group.map(equipmentItem => (
+                      <div key={equipmentItem.id} className="flex justify-between text-xs text-gray-600">
+                        <span>{equipmentItem.category} stock:</span>
+                        <span>{inventoryMetrics.byEquipmentId.get(equipmentItem.id)?.available || 0}/{inventoryMetrics.byEquipmentId.get(equipmentItem.id)?.total || 0}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
 
               <div className="flex justify-between">
                 <span>Equipment ID:</span>
-                <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-800">
-                  {item.id}
-                </code>
+                <span className="flex flex-wrap justify-end gap-1">{group.map(equipmentItem => <code key={equipmentItem.id} className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-800">{equipmentItem.id}</code>)}</span>
+              </div>
+              <div className="flex justify-between gap-3">
+                <span>Item Status:</span>
+                <span className="flex flex-wrap justify-end gap-1">{group.map(equipmentItem => (
+                  <span key={equipmentItem.id} className={`text-xs px-2 py-1 rounded ${
+                    equipmentItem.status === 'Missing' ? 'bg-red-100 text-red-700' :
+                    equipmentItem.status === 'Unavailable' ? 'bg-orange-100 text-orange-700' :
+                    equipmentItem.status === 'Borrowed' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                  }`}>
+                    {equipmentItem.id}: {equipmentItem.status}
+                  </span>
+                ))}</span>
               </div>
               <div className="flex justify-between">
                 <span>QR Code:</span>
-                <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-800">
-                  {item.qrcode}
-                </code>
+                <span className="flex flex-wrap justify-end gap-1">{group.map(equipmentItem => <code key={equipmentItem.id} className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-800">{equipmentItem.qrcode}</code>)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span>Condition:</span>
@@ -277,19 +317,20 @@ export function EquipmentList({ equipment }: EquipmentListProps) {
                   <p className="text-xs text-gray-500">{item.conditionNotes}</p>
                 </div>
               )}
-              {item.borrowedStock > 0 && item.borrowedBy && (
-                <div className="pt-2 border-t border-gray-200">
+              {group.filter(equipmentItem => equipmentItem.borrowedStock > 0 && equipmentItem.borrowedBy).map(equipmentItem => (
+                <div key={equipmentItem.id} className="pt-2 border-t border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Currently Borrowed:</p>
-                  <p className="text-sm text-gray-800">{item.borrowedBy}</p>
+                  <p className="text-sm text-gray-800">{equipmentItem.borrowedBy}</p>
                   <div className="flex justify-between mt-1">
                     <span className="text-xs">Due Date:</span>
-                    <span className="text-xs text-orange-600">{item.dueDate}</span>
+                    <span className="text-xs text-orange-600">{equipmentItem.dueDate}</span>
                   </div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {filteredEquipment.length === 0 && (

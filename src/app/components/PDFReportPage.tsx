@@ -3,6 +3,7 @@ import { Download, FileText, Calendar, Filter, AlertTriangle } from 'lucide-reac
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BorrowRequest } from '../types';
+import { calculateOverduePenalty } from '../penalties';
 
 interface PDFReportPageProps {
   requests: BorrowRequest[];
@@ -17,19 +18,12 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
   const userRequests = requests.filter(r => r.studentId === userId);
 
   const calculatePenalty = (dueDate: string): number => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return diffDays * 5;
-    }
-    return 0;
+    return calculateOverduePenalty(dueDate);
   };
+
+  const getRequestPenalty = (request: BorrowRequest): number => request.status === 'Approved'
+    ? Math.max(request.penalty || 0, calculatePenalty(request.dueDate))
+    : request.penalty || 0;
 
   const isOverdue = (dueDate: string): boolean => {
     const due = new Date(dueDate);
@@ -94,9 +88,7 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
     const approvedCount = filteredRequests.filter(r => r.status === 'Approved').length;
     const pendingCount = filteredRequests.filter(r => r.status === 'Pending').length;
     const overdueCount = filteredRequests.filter(r => r.status === 'Approved' && isOverdue(r.dueDate)).length;
-    const totalPenalties = filteredRequests
-      .filter(r => r.status === 'Approved')
-      .reduce((sum, r) => sum + calculatePenalty(r.dueDate), 0);
+    const totalPenalties = filteredRequests.reduce((sum, request) => sum + getRequestPenalty(request), 0);
 
     const summaryData = [
       ['Total Requests', totalRequests.toString()],
@@ -117,7 +109,7 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
 
     // Detailed Table
     const tableData = filteredRequests.map(req => {
-      const penalty = calculatePenalty(req.dueDate);
+      const penalty = getRequestPenalty(req);
       const overdueStatus = req.status === 'Approved' && isOverdue(req.dueDate) ? 'Yes' : 'No';
       
       return [
@@ -125,7 +117,7 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
         req.equipmentName,
         req.equipmentQRCode,
         req.dueDate,
-        req.status,
+        req.missingItemReturned ? 'Returned' : req.missingItemPaid ? 'Paid' : req.status,
         overdueStatus,
         penalty > 0 ? `$${penalty}` : '-',
       ];
@@ -184,9 +176,7 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
     const pendingCount = filteredRequests.filter(r => r.status === 'Pending').length;
     const rejectedCount = filteredRequests.filter(r => r.status === 'Rejected').length;
     const overdueCount = filteredRequests.filter(r => r.status === 'Approved' && isOverdue(r.dueDate)).length;
-    const totalPenalties = filteredRequests
-      .filter(r => r.status === 'Approved')
-      .reduce((sum, r) => sum + calculatePenalty(r.dueDate), 0);
+    const totalPenalties = filteredRequests.reduce((sum, request) => sum + getRequestPenalty(request), 0);
 
     const summaryData = [
       ['Metric', 'Value'],
@@ -215,7 +205,7 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
 
   const filteredRequests = getFilteredRequests();
   const overdueRequests = filteredRequests.filter(r => r.status === 'Approved' && isOverdue(r.dueDate));
-  const totalPenalties = overdueRequests.reduce((sum, r) => sum + calculatePenalty(r.dueDate), 0);
+  const totalPenalties = filteredRequests.reduce((sum, request) => sum + getRequestPenalty(request), 0);
 
   return (
     <div className="space-y-6">
@@ -374,18 +364,20 @@ export function PDFReportPage({ requests, userId }: PDFReportPageProps) {
             </thead>
             <tbody>
               {filteredRequests.slice(0, 10).map(req => {
-                const penalty = calculatePenalty(req.dueDate);
+                const penalty = getRequestPenalty(req);
                 return (
                   <tr key={req.id} className="border-b hover:bg-gray-50">
                     <td className="py-2 px-3">{req.requestDate}</td>
                     <td className="py-2 px-3">{req.equipmentName}</td>
                     <td className="py-2 px-3">
                       <span className={`px-2 py-1 text-xs rounded-full ${
+                        req.missingItemReturned ? 'bg-green-100 text-green-700' :
+                        req.missingItemPaid ? 'bg-blue-100 text-blue-700' :
                         req.status === 'Approved' ? 'bg-green-100 text-green-700' :
                         req.status === 'Pending' ? 'bg-yellow-100 text-yellow-700' :
                         'bg-red-100 text-red-700'
                       }`}>
-                        {req.status}
+                        {req.missingItemReturned ? 'Returned' : req.missingItemPaid ? 'Paid' : req.status}
                       </span>
                     </td>
                     <td className="py-2 px-3">

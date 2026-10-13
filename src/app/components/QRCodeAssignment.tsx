@@ -16,7 +16,9 @@ export function QRCodeAssignment({ equipment, onUpdateEquipment }: QRCodeAssignm
   const [showAddNew, setShowAddNew] = useState(false);
   const [newEquipment, setNewEquipment] = useState({
     name: '',
-    category: 'Screwdriver Set' as Equipment['category'],
+    brand: 'WCC',
+    category: 'Culinary' as Equipment['category'],
+    program: 'BS Culinary',
     qrcode: '',
   });
 
@@ -34,30 +36,20 @@ export function QRCodeAssignment({ equipment, onUpdateEquipment }: QRCodeAssignm
   const handleAddEquipment = () => {
     if (!newEquipment.name || !newEquipment.qrcode) return;
 
-    const categoryPrefixes: { [key: string]: string } = {
-      'Screwdriver Set': 'SCR',
-      'LAN Cable Set': 'LAN',
-      'Cable Pliers': 'PLR',
-      'Wires': 'WIR',
-      'RJ45': 'RJ45',
-      'LAN Cables': 'LANC',
-      'Cooking Tool Set': 'COOK',
-      'Projectors': 'PROJ',
-      'HDMI Cables': 'HDMI',
-      'First Aid Kits': 'MED',
-    };
-    const prefix = categoryPrefixes[newEquipment.category] || 'EQ';
+    const prefix = newEquipment.category.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'EQ';
     const count = equipment.filter(e => e.category === newEquipment.category).length + 1;
     const id = `${prefix}${String(count).padStart(3, '0')}`;
 
     const newEq: Equipment = {
       id,
       name: newEquipment.name,
+      brand: newEquipment.brand,
       category: newEquipment.category,
+      program: newEquipment.program,
       qrcode: newEquipment.qrcode,
       photoUrl: undefined,
-      totalStock: 1,
-      availableStock: 1,
+      totalStock: 10,
+      availableStock: 10,
       borrowedStock: 0,
       status: 'Available',
       qualityCondition: 'Excellent',
@@ -65,7 +57,7 @@ export function QRCodeAssignment({ equipment, onUpdateEquipment }: QRCodeAssignm
     };
 
     onUpdateEquipment([...equipment, newEq]);
-    setNewEquipment({ name: '', category: 'Screwdriver Set', qrcode: '' });
+    setNewEquipment({ name: '', brand: 'WCC', category: 'Culinary', program: 'BS Culinary', qrcode: '' });
     setShowAddNew(false);
   };
 
@@ -141,16 +133,10 @@ export function QRCodeAssignment({ equipment, onUpdateEquipment }: QRCodeAssignm
                 onChange={(e) => setNewEquipment({ ...newEquipment, category: e.target.value as any })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-500 focus:border-transparent bg-gray-50"
               >
-                <option value="Screwdriver Set">Screwdriver Set</option>
-                <option value="LAN Cable Set">LAN Cable Set</option>
-                <option value="Cable Pliers">Cable Pliers</option>
-                <option value="Wires">Wires</option>
-                <option value="RJ45">RJ45</option>
-                <option value="LAN Cables">LAN Cables</option>
-                <option value="Cooking Tool Set">Cooking Tool Set</option>
-                <option value="Projectors">Projectors</option>
-                <option value="HDMI Cables">HDMI Cables</option>
-                <option value="First Aid Kits">First Aid Kits</option>
+                <option value="Culinary">Culinary</option>
+                <option value="Hospitality">Hospitality</option>
+                <option value="Aviation Maintenance">Aviation Maintenance</option>
+                <option value="Science/Health-related">Science/Health-related</option>
               </select>
             </div>
             <div>

@@ -15,13 +15,15 @@ export interface User {
 export interface Equipment {
   id: string;
   name: string;
-  category: 'Screwdriver Set' | 'LAN Cable Set' | 'Cable Pliers' | 'Wires' | 'RJ45' | 'LAN Cables' | 'Cooking Tool Set' | 'Projectors' | 'HDMI Cables' | 'First Aid Kits';
+  brand?: string;
+  category: string;
+  program?: string;
   qrcode: string;
   photoUrl?: string; // Photo of the equipment item
   totalStock: number; // Total quantity available (max 5)
   availableStock: number; // Currently available for borrowing
   borrowedStock: number; // Currently borrowed
-  status: 'Available' | 'Borrowed' | 'Missing';
+  status: 'Available' | 'Borrowed' | 'Missing' | 'Unavailable';
   borrowedBy?: string;
   borrowDate?: string;
   dueDate?: string;
@@ -33,6 +35,15 @@ export interface Equipment {
   markedMissingBy?: string; // Admin who marked it missing
 }
 
+export interface EquipmentAuditLog {
+  id: string;
+  equipmentId: string;
+  event: 'Equipment Removed';
+  actor: string;
+  date: string;
+  detail: string;
+}
+
 export interface BorrowRequest {
   id: string;
   studentId: string;
@@ -41,6 +52,9 @@ export interface BorrowRequest {
   studentContact: string;
   equipmentId: string;
   equipmentName: string;
+  equipmentCategory?: string;
+  equipmentBrand?: string;
+  equipmentProgram?: string;
   equipmentQRCode: string;
   requestDate: string;
   dueDate: string;
@@ -51,15 +65,20 @@ export interface BorrowRequest {
   status: 'Pending' | 'Approved' | 'Rejected' | 'Returned' | 'Missing';
   approvedBy?: string;
   approvedDate?: string;
+  rejectedBy?: string;
+  rejectedDate?: string;
   returnDate?: string;
   penalty?: number;
   penaltyPaid?: boolean; // Whether penalty has been paid
+  penaltyPaymentStatus?: 'Pending' | 'Paid';
   penaltyPaymentMethod?: string; // GCash, Maya, or Cash Payment Form Downloaded
   penaltyPaymentDate?: string; // Date when penalty was paid
+  penaltyPaymentSubmittedDate?: string;
   conditionBefore?: 'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Damaged';
   conditionAfter?: 'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Damaged';
   conditionNotes?: string;
   overdueHours?: number; // Hours overdue beyond 8-hour limit
+  overdueDays?: number;
   returnPhotoUrl?: string; // URL to uploaded return photo
   reportedMissing?: boolean; // Student reported item as missing
   missingNotes?: string; // Notes about missing item
@@ -67,4 +86,5 @@ export interface BorrowRequest {
   missingItemReturned?: boolean; // Student returned the missing item
   missingItemPaymentDate?: string; // Date when payment was made
   missingItemReturnDate?: string; // Date when missing item was returned
+  missingItemResolvedBy?: string;
 }

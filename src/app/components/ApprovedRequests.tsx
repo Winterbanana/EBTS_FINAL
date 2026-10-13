@@ -5,6 +5,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BorrowRequest } from '../types';
 import { BorrowingSlip } from './BorrowingSlip';
+import { calculateOverduePenalty } from '../penalties';
 
 interface ApprovedRequestsProps {
   requests: BorrowRequest[];
@@ -13,18 +14,7 @@ interface ApprovedRequestsProps {
 export function ApprovedRequests({ requests }: ApprovedRequestsProps) {
   const [selectedSlip, setSelectedSlip] = useState<BorrowRequest | null>(null);
   const calculatePenalty = (dueDate: string): number => {
-    const due = new Date(dueDate);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    due.setHours(0, 0, 0, 0);
-
-    const diffTime = today.getTime() - due.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays > 0) {
-      return diffDays * 20; // 20 pesos per day
-    }
-    return 0;
+    return calculateOverduePenalty(dueDate);
   };
 
   const isOverdue = (dueDate: string): boolean => {
@@ -119,7 +109,7 @@ export function ApprovedRequests({ requests }: ApprovedRequestsProps) {
       ['Request Date:', request.requestDate],
       ['Due Date:', request.dueDate],
       ['Days Overdue:', overdue ? `${getDaysOverdue(request.dueDate)} days` : 'None'],
-      ['Penalty (₱20/day):', overdue ? `₱${penalty}.00` : '₱0.00'],
+      ['Penalty (₱100/day):', overdue ? `₱${penalty}.00` : '₱0.00'],
     ];
 
     autoTable(doc, {
@@ -135,7 +125,7 @@ export function ApprovedRequests({ requests }: ApprovedRequestsProps) {
         0: { fontStyle: 'bold', cellWidth: 45, textColor: [107, 114, 128] },
         1: { 
           cellWidth: 'auto',
-          textColor: overdue && (dateInfo[2][0] === 'Days Overdue:' || dateInfo[3][0] === 'Penalty (₱20/day):') 
+          textColor: overdue && (dateInfo[2][0] === 'Days Overdue:' || dateInfo[3][0] === 'Penalty (₱100/day):')
             ? [239, 68, 68] 
             : [55, 65, 81]
         },
@@ -160,7 +150,7 @@ export function ApprovedRequests({ requests }: ApprovedRequestsProps) {
     const terms = [
       '1. The borrower is responsible for the equipment and must return it in good condition.',
       '2. Equipment must be returned on or before the due date.',
-      '3. Late returns incur a penalty of ₱20.00 per day.',
+      '3. Late returns incur a penalty of ₱100.00 per overdue day.',
       '4. Any damage or loss must be reported immediately to the admin.',
       '5. The borrower may be liable for repair or replacement costs.',
       '6. Penalties must be settled before borrowing new equipment.',

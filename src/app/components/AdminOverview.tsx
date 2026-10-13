@@ -1,5 +1,7 @@
 import { Package, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react';
 import { Equipment, BorrowRequest } from '../types';
+import { MAX_ACTIVE_BORROW_LIMIT, getStudentActiveBorrowCount } from '../borrowing';
+import { getInventoryMetrics } from '../inventoryMetrics';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface AdminOverviewProps {
@@ -8,36 +10,27 @@ interface AdminOverviewProps {
 }
 
 export function AdminOverview({ equipment, requests }: AdminOverviewProps) {
-  const totalEquipment = equipment.length;
-  const availableEquipment = equipment.filter(e => e.status === 'Available').length;
-  const borrowedEquipment = equipment.filter(e => e.status === 'Borrowed').length;
+  const inventoryMetrics = getInventoryMetrics(equipment, requests);
+  const totalEquipment = inventoryMetrics.total;
+  const availableEquipment = inventoryMetrics.available;
+  const borrowedEquipment = inventoryMetrics.borrowed;
   const pendingRequests = requests.filter(r => r.status === 'Pending').length;
   const approvedRequests = requests.filter(r => r.status === 'Approved').length;
 
-  // Category stock data - Top 3 categories for overview
-  const categoryData = [
-    {
-      id: 'category-screwdriver',
-      name: 'Screwdriver Set',
-      total: equipment.filter(e => e.category === 'Screwdriver Set').length,
-      available: equipment.filter(e => e.category === 'Screwdriver Set' && e.status === 'Available').length,
-      borrowed: equipment.filter(e => e.category === 'Screwdriver Set' && e.status === 'Borrowed').length,
-    },
-    {
-      id: 'category-lan-cable',
-      name: 'LAN Cable Set',
-      total: equipment.filter(e => e.category === 'LAN Cable Set').length,
-      available: equipment.filter(e => e.category === 'LAN Cable Set' && e.status === 'Available').length,
-      borrowed: equipment.filter(e => e.category === 'LAN Cable Set' && e.status === 'Borrowed').length,
-    },
-    {
-      id: 'category-projectors',
-      name: 'Projectors',
-      total: equipment.filter(e => e.category === 'Projectors').length,
-      available: equipment.filter(e => e.category === 'Projectors' && e.status === 'Available').length,
-      borrowed: equipment.filter(e => e.category === 'Projectors' && e.status === 'Borrowed').length,
-    },
-  ];
+  const studentsAtLimit = Array.from(new Set(
+    requests.filter(r => r.status === 'Approved').map(r => r.studentId)
+  )).filter(studentId => getStudentActiveBorrowCount(studentId, requests) >= MAX_ACTIVE_BORROW_LIMIT).length;
+
+  const categoryData = Array.from(new Set(equipment.map(item => item.category))).sort().map(category => {
+    const items = equipment.filter(item => item.category === category);
+    return {
+      id: `category-${category}`,
+      name: category,
+      total: items.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.total || 0), 0),
+      available: items.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.available || 0), 0),
+      borrowed: items.reduce((sum, item) => sum + (inventoryMetrics.byEquipmentId.get(item.id)?.borrowed || 0), 0),
+    };
+  });
 
   // Status pie chart data
   const statusData = [
@@ -48,24 +41,26 @@ export function AdminOverview({ equipment, requests }: AdminOverviewProps) {
   const COLORS = ['#10b981', '#ef4444'];
 
   // Recent activities
-  const recentRequests = requests.slice(-5).reverse();
+  const recentRequests = [...requests]
+    .sort((a, b) => `${b.requestDate} ${b.borrowTime || ''}`.localeCompare(`${a.requestDate} ${a.borrowTime || ''}`))
+    .slice(0, 5);
 
   return (
     <div className="space-y-6">
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <div className="bg-white rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-gray-600">Total Equipment</h3>
+            <h3 className="text-gray-600">Total Stock Units</h3>
             <Package className="w-5 h-5 text-blue-600" />
           </div>
           <p className="text-3xl">{totalEquipment}</p>
-          <p className="text-sm text-gray-500 mt-1">All categories</p>
+          <p className="text-sm text-gray-500 mt-1">Across all categories</p>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-gray-600">Available</h3>
+            <h3 className="text-gray-600">Available Units</h3>
             <CheckCircle className="w-5 h-5 text-green-600" />
           </div>
           <p className="text-3xl">{availableEquipment}</p>
@@ -74,7 +69,7 @@ export function AdminOverview({ equipment, requests }: AdminOverviewProps) {
 
         <div className="bg-white rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-gray-600">Borrowed</h3>
+            <h3 className="text-gray-600">Borrowed Units</h3>
             <XCircle className="w-5 h-5 text-red-600" />
           </div>
           <p className="text-3xl">{borrowedEquipment}</p>
@@ -88,6 +83,15 @@ export function AdminOverview({ equipment, requests }: AdminOverviewProps) {
           </div>
           <p className="text-3xl">{pendingRequests}</p>
           <p className="text-sm text-gray-500 mt-1">Need approval</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-gray-600">At Limit</h3>
+            <TrendingUp className="w-5 h-5 text-red-600" />
+          </div>
+          <p className="text-3xl text-red-600">{studentsAtLimit}</p>
+          <p className="text-sm text-gray-500 mt-1">Students at 3/3</p>
         </div>
       </div>
 

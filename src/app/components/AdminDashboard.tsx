@@ -11,7 +11,7 @@ import { AdminReports } from './AdminReports';
 import { AdminAnalytics } from './AdminAnalytics';
 import { MissingItemManagement } from './MissingItemManagement';
 import { AccountManagement } from './AccountManagement';
-import { Equipment, BorrowRequest, User } from '../types';
+import { Equipment, BorrowRequest, EquipmentAuditLog, User } from '../types';
 import wccLogo from '../../imports/image.png';
 
 interface AdminDashboardProps {
@@ -19,11 +19,14 @@ interface AdminDashboardProps {
   equipment: Equipment[];
   requests: BorrowRequest[];
   users: User[];
+  equipmentAuditLogs: EquipmentAuditLog[];
   onUpdateEquipment: (equipment: Equipment[]) => void;
   onUpdateRequests: (requests: BorrowRequest[]) => void;
   onUpdateUsers: (users: User[]) => void;
   onLogout: () => void;
   onUpdateUser: (updated: User) => void;
+  onConfirmPenaltyPayment: (requestId: string) => void;
+  onRemoveEquipment: (equipmentId: string) => void;
 }
 
 export function AdminDashboard({
@@ -31,11 +34,14 @@ export function AdminDashboard({
   equipment,
   requests,
   users,
+  equipmentAuditLogs,
   onUpdateEquipment,
   onUpdateRequests,
   onUpdateUsers,
   onLogout,
-  onUpdateUser
+  onUpdateUser,
+  onConfirmPenaltyPayment,
+  onRemoveEquipment
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<'overview' | 'stocks' | 'qrcodes' | 'requests' | 'missing' | 'database' | 'reports' | 'analytics' | 'accounts'>('overview');
   const [showSettings, setShowSettings] = useState(false);
@@ -228,7 +234,7 @@ export function AdminDashboard({
       {/* Main Content */}
       <main className="container mx-auto px-4 py-6">
         {activeTab === 'overview' && <AdminOverview equipment={equipment} requests={requests} />}
-        {activeTab === 'stocks' && <StockChecker equipment={equipment} onUpdateEquipment={onUpdateEquipment} />}
+        {activeTab === 'stocks' && <StockChecker equipment={equipment} requests={requests} onUpdateEquipment={onUpdateEquipment} canRemoveEquipment onRemoveEquipment={onRemoveEquipment} />}
         {activeTab === 'qrcodes' && <QRCodeAssignment equipment={equipment} onUpdateEquipment={onUpdateEquipment} />}
         {activeTab === 'requests' && (
           <RequestManagement 
@@ -236,6 +242,7 @@ export function AdminDashboard({
             equipment={equipment}
             onUpdateRequests={onUpdateRequests} 
             onUpdateEquipment={onUpdateEquipment}
+            onConfirmPenaltyPayment={onConfirmPenaltyPayment}
           />
         )}
         {activeTab === 'missing' && (
@@ -251,13 +258,14 @@ export function AdminDashboard({
             equipment={equipment}
             requests={requests}
             users={users}
+            equipmentAuditLogs={equipmentAuditLogs}
             onUpdateEquipment={onUpdateEquipment}
             onUpdateRequests={onUpdateRequests}
             onUpdateUsers={onUpdateUsers}
           />
         )}
         {activeTab === 'reports' && <AdminReports requests={requests} equipment={equipment} />}
-        {activeTab === 'accounts' && <AccountManagement users={users} onUpdateUsers={onUpdateUsers} />}
+        {activeTab === 'accounts' && <AccountManagement users={users} requests={requests} onUpdateUsers={onUpdateUsers} />}
         {activeTab === 'analytics' && <AdminAnalytics requests={requests} equipment={equipment} />}
       </main>
 

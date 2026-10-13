@@ -1,16 +1,5 @@
 import { User, Equipment, BorrowRequest } from '../types';
-
-// Import equipment photos
-import ScrewdriverSetImg from '../../imports/Screwdriver_Set.png';
-import LANCableSetImg from '../../imports/LAN_Cable_Set.png';
-import CablePliersImg from '../../imports/Cable_Pliers.png';
-import WireSpoolImg from '../../imports/Wire_Spool.png';
-import RJ45ConnectorImg from '../../imports/RJ45_Connector_Pack.png';
-import LANCableEthernetImg from '../../imports/LAN_Cable__Ethernet_.png';
-import CookingToolSetImg from '../../imports/Cooking_Tool_Set.png';
-import ProjectorImg from '../../imports/Projector.png';
-import HDMICableImg from '../../imports/HDMI_Cable.png';
-import FirstAidKitImg from '../../imports/First_Aid_Kit.png';
+import { INITIAL_EQUIPMENT as NEW_EQUIPMENT } from './equipmentCatalog';
 
 // === INTERNAL CREDENTIAL DATABASES ===
 
@@ -121,6 +110,7 @@ export const USERS: User[] = [
   ...STAFF_CREDENTIALS,
 ];
 
+/* Legacy inventory/demo transactions retired; the new catalog is in equipmentCatalog.ts.
 // Equipment Database - WCC Technical Equipment (Stock-based) - v2.2.0 with Local Photos
 export const INITIAL_EQUIPMENT: Equipment[] = [
   {
@@ -325,3 +315,7 @@ export const INITIAL_REQUESTS: BorrowRequest[] = [
     status: 'Pending',
   },
 ];
+*/
+
+export const INITIAL_EQUIPMENT: Equipment[] = NEW_EQUIPMENT;
+export const INITIAL_REQUESTS: BorrowRequest[] = [];
