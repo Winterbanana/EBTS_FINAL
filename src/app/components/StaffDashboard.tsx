@@ -194,7 +194,7 @@ export function StaffDashboard({
           </div>
         )}
 
-        {activeTab === 'stocks' && <StockChecker equipment={equipment} onUpdateEquipment={onUpdateEquipment} />}
+        {activeTab === 'stocks' && <StockChecker equipment={equipment} requests={requests} onUpdateEquipment={onUpdateEquipment} />}
         {activeTab === 'requests' && <RequestManagement equipment={equipment} requests={requests} onUpdateEquipment={onUpdateEquipment} onUpdateRequests={onUpdateRequests} onConfirmPenaltyPayment={onConfirmPenaltyPayment} />}
         {activeTab === 'reports' && <AdminReports equipment={equipment} requests={requests} />}
         {activeTab === 'analytics' && <AdminAnalytics equipment={equipment} requests={requests} />}
