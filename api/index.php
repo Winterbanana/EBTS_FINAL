@@ -259,6 +259,32 @@ function insertHistoryOnce(PDO $db, string $sql, array $values, string $matchSql
     }
 }
 
+function syncOverduePenaltyRecord(PDO $db, array $request): void {
+    $transactionId = (string)$request['id'];
+    $penaltyPaid = !empty($request['penaltyPaid']) || ($request['penaltyPaymentStatus'] ?? '') === 'Paid';
+    $values = [
+        (string)($request['studentId'] ?? ''),
+        (string)($request['studentName'] ?? ''),
+        (string)($request['equipmentName'] ?? ''),
+        (float)($request['penalty'] ?? 0),
+        (int)($request['overdueHours'] ?? 0),
+        (int)($request['overdueDays'] ?? 0),
+        $penaltyPaid ? 1 : 0,
+        textValue($request, 'penaltyPaymentMethod'),
+        $penaltyPaid ? textValue($request, 'penaltyPaymentDate') : null,
+        textValue($request, 'returnDate'),
+    ];
+    $find = $db->prepare("SELECT id FROM wcc_penalty_records WHERE transaction_id=? AND penalty_type='Overdue Return' ORDER BY id LIMIT 1");
+    $find->execute([$transactionId]);
+    if ($find->fetchColumn()) {
+        $update = $db->prepare("UPDATE wcc_penalty_records SET student_id=?,student_name=?,equipment_name=?,amount=?,overdue_hours=?,overdue_days=?,penalty_paid=?,payment_method=?,payment_date=?,return_date=? WHERE transaction_id=? AND penalty_type='Overdue Return'");
+        $update->execute([...$values, $transactionId]);
+        return;
+    }
+    $insert = $db->prepare("INSERT INTO wcc_penalty_records (transaction_id,student_id,student_name,equipment_name,penalty_type,amount,overdue_hours,overdue_days,penalty_paid,payment_method,payment_date,return_date) VALUES (?,?,?,?,'Overdue Return',?,?,?,?,?,?,?)");
+    $insert->execute([$transactionId, ...$values]);
+}
+
 function validateEquipmentPhotos(array $equipment): void {
     $assetRoot = realpath(__DIR__ . '/../public/equipment');
     foreach ($equipment as $item) {
@@ -412,6 +438,8 @@ try {
         $id = (string)$request['id'];
         $previousRequest = $previousRequests[$id] ?? null;
         $isNewRequest = $previousRequest === null;
+        $paymentIsPaid = !empty($request['penaltyPaid']) || ($request['penaltyPaymentStatus'] ?? '') === 'Paid';
+        $previousPaymentIsPaid = !empty($previousRequest['penaltyPaid']) || ($previousRequest['penaltyPaymentStatus'] ?? '') === 'Paid';
         $statusChanged = $isNewRequest || ($previousRequest['status'] ?? null) !== ($request['status'] ?? null);
         $returnChanged = $statusChanged
             || ($previousRequest['returnDate'] ?? null) !== ($request['returnDate'] ?? null)
@@ -443,15 +471,18 @@ try {
             $values = [$id, 'Missing Item Fee Paid', (string)($request['approvedBy'] ?? 'Admin'), textValue($request, 'missingItemPaymentDate'), 'Replacement fee: 200'];
             insertHistoryOnce($db, $logSql, $values, $logMatchSql, $values);
         }
-        if (($request['penalty'] ?? 0) > 0 && ($isNewRequest || ($previousRequest['penalty'] ?? 0) != $request['penalty'])) {
-            insertHistoryOnce($db, 'INSERT INTO wcc_penalty_records (transaction_id,student_id,student_name,equipment_name,penalty_type,amount,overdue_hours,overdue_days,penalty_paid,payment_method,payment_date,return_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [$id, (string)($request['studentId'] ?? ''), (string)($request['studentName'] ?? ''), (string)($request['equipmentName'] ?? ''), 'Overdue Return', (float)$request['penalty'], (int)($request['overdueHours'] ?? 0), (int)($request['overdueDays'] ?? 0), !empty($request['penaltyPaid']) ? 1 : 0, textValue($request, 'penaltyPaymentMethod'), textValue($request, 'penaltyPaymentDate'), textValue($request, 'returnDate')], 'SELECT 1 FROM wcc_penalty_records WHERE transaction_id=? AND penalty_type=? LIMIT 1', [$id, 'Overdue Return']);
-        }
         if (!empty($request['missingItemPaid']) && empty($previousRequest['missingItemPaid'])) {
             insertHistoryOnce($db, 'INSERT INTO wcc_penalty_records (transaction_id,student_id,student_name,equipment_name,penalty_type,amount,overdue_hours,overdue_days,penalty_paid,payment_method,payment_date,return_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)', [$id, (string)($request['studentId'] ?? ''), (string)($request['studentName'] ?? ''), (string)($request['equipmentName'] ?? ''), 'Missing Item', 200, 0, 0, 1, 'Staff verified', textValue($request, 'missingItemPaymentDate'), textValue($request, 'missingItemReturnDate')], 'SELECT 1 FROM wcc_penalty_records WHERE transaction_id=? AND penalty_type=? LIMIT 1', [$id, 'Missing Item']);
         }
-        if (!empty($request['penaltyPaid']) && empty($previousRequest['penaltyPaid']) && isset($request['penaltyPaymentDate'])) {
-            $values = [$id, 'Penalty Paid', (string)($request['studentName'] ?? ''), textValue($request, 'penaltyPaymentDate'), (string)($request['penaltyPaymentMethod'] ?? '')];
+        if ($paymentIsPaid && !$previousPaymentIsPaid && isset($request['penaltyPaymentDate'])) {
+            $values = [$id, 'Penalty Paid', (string)($request['penaltyVerifiedBy'] ?? $request['approvedBy'] ?? 'Staff'), textValue($request, 'penaltyPaymentDate'), (string)($request['penaltyPaymentMethod'] ?? '')];
             insertHistoryOnce($db, $logSql, $values, $logMatchSql, $values);
+        }
+    }
+
+    foreach ($changedRequests as $request) {
+        if (is_array($request) && isset($request['id']) && (float)($request['penalty'] ?? 0) > 0) {
+            syncOverduePenaltyRecord($db, $request);
         }
     }
 

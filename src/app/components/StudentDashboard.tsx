@@ -8,6 +8,7 @@ import { ApprovedRequests } from './ApprovedRequests';
 import { ReturnItemPage } from './ReturnItemPage';
 import { PDFReportPage } from './PDFReportPage';
 import { PendingRequestsPage } from './PendingRequestsPage';
+import { PaymentModal } from './PaymentModal';
 import { StudentAnalytics } from './StudentAnalytics';
 import { Equipment, BorrowRequest, User as UserType } from '../types';
 import { MAX_ACTIVE_BORROW_LIMIT, getBorrowingLimitMessage, getStudentActiveBorrowCount } from '../borrowing';
@@ -34,6 +35,7 @@ interface StudentDashboardProps {
 export function StudentDashboard({ user, equipment, requests, onAddRequest, onReturnItem, onPaymentComplete, onLogout, onUpdateUser }: StudentDashboardProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'equipment' | 'request' | 'pending' | 'approved' | 'return' | 'reports' | 'analytics' | 'borrowing-history' | 'penalty-history'>('dashboard');
   const [showSettings, setShowSettings] = useState(false);
+  const [paymentRequest, setPaymentRequest] = useState<BorrowRequest | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
@@ -479,7 +481,7 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
             <p className="text-sm text-gray-500 mb-4">Complete record of all penalties incurred and payments issued.</p>
             {(() => {
               const penaltyRecords = userRequests.filter(r =>
-                (r.penalty && r.penalty > 0) || r.status === 'Missing' || r.reportedMissing || r.missingItemReturned || r.missingItemPaid
+                (r.penalty && r.penalty > 0) || r.penaltyPaymentStatus || r.status === 'Missing' || r.reportedMissing || r.missingItemReturned || r.missingItemPaid
               );
               return penaltyRecords.length === 0 ? (
                 <div className="bg-white rounded-lg shadow-sm p-12 border border-gray-200 text-center">
@@ -495,11 +497,11 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                     </div>
                     <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
                       <p className="text-xs text-orange-600 mb-1">Paid</p>
-                      <p className="text-2xl text-orange-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid ? (r.penalty || 0) : 0) + (r.missingItemPaid ? 200 : 0), 0)}</p>
+                      <p className="text-2xl text-orange-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid || r.penaltyPaymentStatus === 'Paid' ? (r.penalty || 0) : 0) + (r.missingItemPaid ? 200 : 0), 0)}</p>
                     </div>
                     <div className="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
                       <p className="text-xs text-yellow-600 mb-1">Outstanding</p>
-                      <p className="text-2xl text-yellow-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid ? 0 : (r.penalty || 0)) + (r.reportedMissing && !r.missingItemPaid && !r.missingItemReturned ? 200 : 0), 0)}</p>
+                      <p className="text-2xl text-yellow-700 font-bold">₱{penaltyRecords.reduce((s, r) => s + (r.penaltyPaid || r.penaltyPaymentStatus === 'Paid' ? 0 : (r.penalty || 0)) + (r.reportedMissing && !r.missingItemPaid && !r.missingItemReturned ? 200 : 0), 0)}</p>
                     </div>
                   </div>
                   <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -554,13 +556,25 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
                               <td className="px-4 py-3">
                                 {req.missingItemReturned ? (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Returned</span>
-                                ) : req.penaltyPaid || req.missingItemPaid ? (
+                                ) : req.penaltyPaid || req.penaltyPaymentStatus === 'Paid' || req.missingItemPaid ? (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Paid</span>
                                 ) : req.penaltyPaymentStatus === 'Pending' ? (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">Awaiting Verification</span>
                                 ) : (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Unpaid</span>
                                 )}
+                                {Boolean(req.penalty && req.penalty > 0)
+                                  && !req.penaltyPaid
+                                  && req.penaltyPaymentStatus !== 'Paid'
+                                  && req.penaltyPaymentStatus !== 'Pending'
+                                  && (
+                                    <button
+                                      onClick={() => setPaymentRequest(req)}
+                                      className="ml-2 rounded bg-blue-700 px-2 py-1 text-xs font-medium text-white hover:bg-blue-800"
+                                    >
+                                      Submit payment
+                                    </button>
+                                  )}
                               </td>
                             </tr>
                           );
@@ -581,6 +595,16 @@ export function StudentDashboard({ user, equipment, requests, onAddRequest, onRe
           user={user}
           onClose={() => setShowSettings(false)}
           onUpdateUser={onUpdateUser}
+        />
+      )}
+      {paymentRequest && (
+        <PaymentModal
+          request={paymentRequest}
+          onClose={() => setPaymentRequest(null)}
+          onPaymentComplete={(requestId, paymentMethod) => {
+            onPaymentComplete(requestId, paymentMethod);
+            setPaymentRequest(null);
+          }}
         />
       )}
     </div>

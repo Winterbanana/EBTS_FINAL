@@ -74,6 +74,7 @@ export interface BorrowRequest {
   penaltyPaymentMethod?: string; // GCash, Maya, or Cash Payment Form Downloaded
   penaltyPaymentDate?: string; // Date when penalty was paid
   penaltyPaymentSubmittedDate?: string;
+  penaltyVerifiedBy?: string;
   conditionBefore?: 'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Damaged';
   conditionAfter?: 'Excellent' | 'Good' | 'Fair' | 'Poor' | 'Damaged';
   conditionNotes?: string;

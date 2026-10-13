@@ -67,7 +67,7 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
     doc.setTextColor(0, 0, 0);
     doc.text(`Student Name: ${req.studentName}`, 20, yPos + 15);
     doc.text(`Student ID: ${req.studentId}`, 20, yPos + 22);
-    doc.text(`Course & Section: ${req.course} - ${req.section}`, 20, yPos + 29);
+    doc.text(`Course & Section: ${req.studentCourse || '—'}`, 20, yPos + 29);
 
     yPos += 45;
 
@@ -83,7 +83,7 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
     doc.setTextColor(0, 0, 0);
     doc.text(`Equipment Name: ${req.equipmentName}`, 20, yPos + 15);
     doc.text(`Equipment ID: ${req.equipmentId}`, 20, yPos + 22);
-    doc.text(`Borrow Date: ${req.borrowDate}`, 20, yPos + 29);
+    doc.text(`Borrow Date: ${req.requestDate || '—'}`, 20, yPos + 29);
     doc.text(`Due Date: ${req.dueDate}`, 20, yPos + 36);
 
     if (req.overdueDays) {
@@ -319,13 +319,12 @@ export function PaymentModal({ request, onClose, onPaymentComplete }: PaymentMod
               )}
 
               {selectedMethod && selectedMethod !== 'cash' && (
-                <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-sm text-blue-800">
-                    <strong>Note:</strong> After clicking "Proceed to Payment", you will be redirected to complete the payment.
-                    Once payment is confirmed, your penalty will be marked as paid.
-                  </p>
-                </div>
-              )}
+                        <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-sm text-blue-800">
+                            <strong>Note:</strong> Complete the transfer in your {selectedMethod === 'gcash' ? 'GCash' : 'Maya'} app, then show proof of payment to staff for verification. This system does not process the transfer.
+                          </p>
+                        </div>
+                      )}
             </div>
 
             {/* Action Buttons */}

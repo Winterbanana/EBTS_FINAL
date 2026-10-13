@@ -4,6 +4,7 @@ import Barcode from 'react-barcode';
 import { BorrowRequest, Equipment } from '../types';
 import { BorrowingSlip } from './BorrowingSlip';
 import { MAX_ACTIVE_BORROW_LIMIT, getBorrowingLimitMessage, getStudentActiveBorrowCount } from '../borrowing';
+import { calculateOverduePenalty } from '../penalties';
 
 interface RequestManagementProps {
   requests: BorrowRequest[];
@@ -14,10 +15,11 @@ interface RequestManagementProps {
 }
 
 export function RequestManagement({ requests, equipment, onUpdateRequests, onUpdateEquipment, onConfirmPenaltyPayment }: RequestManagementProps) {
-  const [filter, setFilter] = useState<'Active' | 'Pending' | 'Approved' | 'History'>('Active');
+  const [filter, setFilter] = useState<'Active' | 'Pending' | 'Approved' | 'Payments' | 'History'>('Active');
   const [selectedSlip, setSelectedSlip] = useState<BorrowRequest | null>(null);
 
   const activeRequests = requests.filter(r => r.status === 'Pending' || r.status === 'Approved');
+  const paymentRequests = requests.filter(r => r.penaltyPaymentStatus === 'Pending');
   const historyRequests = requests.filter(r =>
     r.status === 'Rejected' || r.status === 'Returned' || r.status === 'Missing'
   );
@@ -25,7 +27,15 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
     ? activeRequests
     : filter === 'History'
       ? historyRequests
-      : requests.filter(r => r.status === filter);
+      : filter === 'Payments'
+        ? paymentRequests
+        : requests.filter(r => r.status === filter);
+
+  const hasUnpaidPenalty = (request: BorrowRequest): boolean => {
+    const penalty = request.penalty ?? calculateOverduePenalty(request.dueDate);
+    return request.penaltyPaymentStatus === 'Pending'
+      || (penalty > 0 && !request.penaltyPaid && request.penaltyPaymentStatus !== 'Paid');
+  };
 
   const handleApprove = (request: BorrowRequest) => {
     const item = equipment.find(e => e.id === request.equipmentId);
@@ -81,6 +91,11 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
   };
 
   const handleReturn = (request: BorrowRequest) => {
+    if (hasUnpaidPenalty(request)) {
+      alert('This request has an unpaid penalty. Verify the payment before marking the item as returned.');
+      return;
+    }
+
     const now = new Date();
     // Update request status
     const updatedRequests = requests.map(r =>
@@ -144,6 +159,14 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
             }`}
           >
             Approved ({approvedCount})
+          </button>
+          <button
+            onClick={() => setFilter('Payments')}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              filter === 'Payments' ? 'bg-amber-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            Payments ({paymentRequests.length})
           </button>
           <button
             onClick={() => setFilter('History')}
@@ -256,6 +279,31 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
               </div>
             </div>
 
+            {request.penaltyPaymentStatus === 'Pending' && (
+              <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <span>
+                    Payment awaiting verification: {request.penaltyPaymentMethod || 'Method not recorded'}
+                    {request.penaltyPaymentSubmittedDate ? ` · submitted ${request.penaltyPaymentSubmittedDate}` : ''}
+                  </span>
+                  <button
+                    onClick={() => onConfirmPenaltyPayment(request.id)}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-green-700 px-4 py-2 text-white transition-colors hover:bg-green-800"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Confirm Payment Received
+                  </button>
+                </div>
+              </div>
+            )}
+            {request.penaltyPaymentStatus === 'Paid' && (
+              <div className="mt-4 rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-900">
+                Penalty payment verified
+                {request.penaltyPaymentDate ? ` on ${request.penaltyPaymentDate}` : ''}
+                {request.penaltyVerifiedBy ? ` by ${request.penaltyVerifiedBy}` : ''}.
+              </div>
+            )}
+
             {request.status === 'Pending' && (
               <div className="flex gap-3 mt-4 pt-4 border-t">
                 <button
@@ -277,15 +325,6 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
 
             {request.status === 'Approved' && (
               <div className="mt-4 pt-4 border-t flex gap-3">
-                {request.penaltyPaymentStatus === 'Pending' && (
-                  <button
-                    onClick={() => onConfirmPenaltyPayment(request.id)}
-                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 transition-colors"
-                  >
-                    <CheckCircle className="w-4 h-4" />
-                    Confirm Penalty Payment Received
-                  </button>
-                )}
                 <button
                   onClick={() => setSelectedSlip(request)}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
@@ -295,10 +334,12 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
                 </button>
                 <button
                   onClick={() => handleReturn(request)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  disabled={hasUnpaidPenalty(request)}
+                  title={hasUnpaidPenalty(request) ? 'Verify the penalty payment before marking this item as returned.' : undefined}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 disabled:hover:bg-gray-300"
                 >
                   <CheckCircle className="w-4 h-4" />
-                  Mark as Returned
+                  {hasUnpaidPenalty(request) ? 'Verify Penalty First' : 'Mark as Returned'}
                 </button>
               </div>
             )}
@@ -311,7 +352,11 @@ export function RequestManagement({ requests, equipment, onUpdateRequests, onUpd
               ? <History className="w-12 h-12 text-gray-400 mx-auto mb-3" />
               : <Clock className="w-12 h-12 text-gray-400 mx-auto mb-3" />}
             <p className="text-gray-600">
-              {filter === 'History' ? 'No completed or rejected requests in history' : `No ${filter === 'Active' ? 'active' : filter.toLowerCase()} requests found`}
+              {filter === 'History'
+                ? 'No completed or rejected requests in history'
+                : filter === 'Payments'
+                  ? 'No payments are waiting for verification'
+                  : `No ${filter === 'Active' ? 'active' : filter.toLowerCase()} requests found`}
             </p>
           </div>
         )}

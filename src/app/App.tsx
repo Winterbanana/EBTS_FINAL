@@ -285,27 +285,45 @@ export default function App() {
     });
   };
   const handlePaymentComplete = (requestId: string, paymentMethod: string) => {
-    setRequests(prev => prev.map(r =>
-      r.id === requestId
-        ? {
-            ...r,
-            penalty: calculateOverduePenalty(r.dueDate),
-            overdueDays: getOverdueDays(r.dueDate),
-            penaltyPaid: false,
-            penaltyPaymentStatus: 'Pending',
-            penaltyPaymentMethod: paymentMethod,
-            penaltyPaymentSubmittedDate: new Date().toISOString().split('T')[0],
-          }
-        : r
-    ));
+    const request = requests.find(candidate => candidate.id === requestId);
+    if (
+      !request ||
+      request.penaltyPaid ||
+      request.penaltyPaymentStatus === 'Paid' ||
+      request.penaltyPaymentStatus === 'Pending' ||
+      !['Approved', 'Returned', 'Missing'].includes(request.status)
+    ) return;
+
+    const penaltyDate = request.returnDate
+      ? new Date(`${request.returnDate}T00:00:00`)
+      : new Date();
+    const overdueDays = request.overdueDays ?? getOverdueDays(request.dueDate, penaltyDate);
+    const penalty = request.penalty ?? calculateOverduePenalty(request.dueDate, penaltyDate);
+    if (penalty <= 0) return;
+
+    setRequests(prev => prev.map(r => r.id === requestId ? {
+      ...r,
+      penalty,
+      overdueDays,
+      penaltyPaid: false,
+      penaltyPaymentStatus: 'Pending',
+      penaltyPaymentMethod: paymentMethod,
+      penaltyPaymentSubmittedDate: new Date().toISOString().split('T')[0],
+      penaltyPaymentDate: undefined,
+      penaltyVerifiedBy: undefined,
+    } : r));
   };
 
   const handleConfirmPenaltyPayment = (requestId: string) => {
+    const request = requests.find(candidate => candidate.id === requestId);
+    if (!request || request.penaltyPaymentStatus !== 'Pending') return;
+    const paymentDate = new Date().toISOString().split('T')[0];
     setRequests(prev => prev.map(r => r.id === requestId ? {
       ...r,
       penaltyPaid: true,
       penaltyPaymentStatus: 'Paid',
-      penaltyPaymentDate: new Date().toISOString().split('T')[0],
+      penaltyPaymentDate: paymentDate,
+      penaltyVerifiedBy: currentUser?.name ?? 'Staff',
     } : r));
   };
 
@@ -321,6 +339,11 @@ export default function App() {
 
     const overdueDays = getOverdueDays(request.dueDate);
     const penalty = calculateOverduePenalty(request.dueDate);
+    const penaltyPaid = request.penaltyPaid || request.penaltyPaymentStatus === 'Paid';
+    if (request.penaltyPaymentStatus === 'Pending' || (penalty > 0 && !penaltyPaid)) {
+      alert('Please wait for staff to verify the penalty payment before returning this item.');
+      return;
+    }
 
     setRequests(prev => prev.map(r => r.id === requestId ? {
       ...r,

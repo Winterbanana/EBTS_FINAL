@@ -40,6 +40,9 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
     return calculateOverduePenalty(request.dueDate);
   };
 
+  const isPenaltyPaid = (request: BorrowRequest): boolean =>
+    request.penaltyPaid === true || request.penaltyPaymentStatus === 'Paid';
+
   const isOverdue = (request: BorrowRequest): boolean => {
     if (request.status === 'Missing') return true;
 
@@ -59,7 +62,7 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
 
     // Check if item has penalty and if it's paid
     const penalty = calculatePenalty(selected);
-    if (penalty > 0 && !selected.penaltyPaid) {
+    if (selected.penaltyPaymentStatus === 'Pending' || (penalty > 0 && !isPenaltyPaid(selected))) {
       alert('Please pay the penalty before returning this item.');
       return;
     }
@@ -106,7 +109,11 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
   const selected = activeRequests.find(r => r.id === selectedRequest);
   const penalty = selected ? calculatePenalty(selected) : 0;
   const overdue = selected ? isOverdue(selected) : false;
-  const canReturn = selected ? (penalty === 0 || selected.penaltyPaid) && (selected.status !== 'Missing' || selected.missingItemPaid || selected.missingItemReturned) : false;
+  const canReturn = selected
+    ? selected.penaltyPaymentStatus !== 'Pending'
+      && (penalty === 0 || isPenaltyPaid(selected))
+      && (selected.status !== 'Missing' || selected.missingItemPaid || selected.missingItemReturned)
+    : false;
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -166,7 +173,7 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
               </div>
             )}
 
-            {selected && selected.penaltyPaymentStatus !== 'Pending' && !canReturn && (penalty > 0 && !selected.penaltyPaid) && (
+            {selected && selected.penaltyPaymentStatus !== 'Pending' && !canReturn && (penalty > 0 && !isPenaltyPaid(selected)) && (
               <button
                 onClick={() => handlePayPenalty(selected)}
                 className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-red-600 to-orange-600 text-white rounded-lg hover:from-red-700 hover:to-orange-700 transition-colors shadow-md"
@@ -267,21 +274,21 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
               {/* Penalty Warning/Status */}
               {penalty > 0 ? (
                 <div className={`p-4 border-2 rounded-lg ${
-                  selected.penaltyPaid
+                  isPenaltyPaid(selected)
                     ? 'bg-green-50 border-green-300'
                     : 'bg-red-50 border-red-300'
                 }`}>
                   <div className="flex items-start gap-3">
-                    {selected.penaltyPaid ? (
+                    {isPenaltyPaid(selected) ? (
                       <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                     ) : (
                       <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                     )}
                     <div className="flex-1">
-                      <h4 className={`text-sm mb-2 ${selected.penaltyPaid ? 'text-green-800' : 'text-red-800'}`}>
-                        {selected.penaltyPaid ? 'Penalty Paid' : 'Overdue Penalty'}
+                      <h4 className={`text-sm mb-2 ${isPenaltyPaid(selected) ? 'text-green-800' : 'text-red-800'}`}>
+                        {isPenaltyPaid(selected) ? 'Penalty Paid' : 'Overdue Penalty'}
                       </h4>
-                      <div className={`space-y-1 text-sm ${selected.penaltyPaid ? 'text-green-700' : 'text-red-700'}`}>
+                      <div className={`space-y-1 text-sm ${isPenaltyPaid(selected) ? 'text-green-700' : 'text-red-700'}`}>
                         {selected.overdueDays && (
                           <p>Days Overdue: {selected.overdueDays} day(s)</p>
                         )}
@@ -291,7 +298,7 @@ export function ReturnItemPage({ userId, requests, onReturnItem, onPaymentComple
                         <p>Penalty Rate: ₱100.00 per overdue day</p>
                         <p className="text-lg font-medium">Total Penalty: ₱{penalty}.00</p>
                       </div>
-                      {selected.penaltyPaid ? (
+                      {isPenaltyPaid(selected) ? (
                         <div className="mt-2 text-xs text-green-600">
                           ✓ Paid via {selected.penaltyPaymentMethod} on {selected.penaltyPaymentDate}
                         </div>
